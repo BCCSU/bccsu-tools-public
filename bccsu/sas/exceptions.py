@@ -1,0 +1,2 @@
+class InconsistencyError(Exception):
+    pass

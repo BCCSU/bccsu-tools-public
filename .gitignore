@@ -1,0 +1,11 @@
+.idea
+__pycache__
+.ipynb_checkpoints
+Untitled.ipynb
+venv
+.venv
+~$*
+.env
+load_session.py
+*.csv
+*.sas7bdat
