@@ -52,7 +52,7 @@ def proc_logistic_command(dependent, independent, classes=None, outputs=None, li
     command = rf"""
 proc logistic data=TEMP_DATA NAMELEN=32 descending;
     class {class_variables};
-    model {dependent} = {' '.join(independent)} / {options} link={link};
+    model {dependent} = {' '.join(independent)} / {options} link={link} lackfit;
     {output_serializer(outputs)}
 run;
 """
