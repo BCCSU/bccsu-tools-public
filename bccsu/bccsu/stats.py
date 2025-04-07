@@ -64,7 +64,11 @@ def value_counts_single(arr, labels=None):
         pref_count.index = pd.Categorical(pref_count.index, categories=list(labels.values()), ordered=True)
     pref_count = pref_count.sort_index()
     pref_count.loc['Total'] = total
-    pref_count.loc['Missing'] = f'{arr.isna().sum()} ({arr.isna().sum() / arr.shape[0] * 100:0.2f}%)'
+    if arr.shape[0] == 0:
+        denominator = 1
+    else:
+        denominator = arr.shape[0]
+    pref_count.loc['Missing'] = f'{arr.isna().sum()} ({arr.isna().sum() / denominator * 100:0.2f}%)'
     return pd.DataFrame(pref_count)
 
 
