@@ -76,7 +76,7 @@ run;
 
 @base_command_pythonize
 def proc_genmod_command(dependent, independent, classes=None, outputs=None, dist='binomial', link='logit',
-                        descending=True, **kwargs):
+                        descending=True, continuous_outcome=False, **kwargs):
     if not classes:
         classes = {}
     try:
@@ -93,9 +93,13 @@ def proc_genmod_command(dependent, independent, classes=None, outputs=None, dist
 
     classes = {key: item for key, item in classes.items() if key.lower() in independent + [dependent]}
 
+    class_dependent = f"{dependent}(ref='{main_ref}')"
+    if continuous_outcome:
+        class_dependent = ""
+
     command = rf"""
 proc genmod data=TEMP_DATA NAMELEN=32 {'descending' if descending else ''};
-    class {dependent}(ref='{main_ref}') {'CODE' if not kwargs.get('cross') else ''} 
+    class {class_dependent} {'CODE' if not kwargs.get('cross') else ''} 
 {' '.join([f'{key}(ref="{item}")' for key, item in classes.items()])};
     model {dependent} = {' '.join(independent)} / CL dist={dist} link={link} lrci;
     {f'repeated subject=CODE / type={corr_type};' if not kwargs.get('cross') else ''}

@@ -1,6 +1,6 @@
 from lxml import etree
 import pandas as pd
-from bccsu.filr import filr_open
+import re
 
 
 def parse_redcap_data_dict(path, local=False):
@@ -16,6 +16,7 @@ def parse_redcap_data_dict(path, local=False):
         with open(path, 'r') as f:
             content = f.read()
     else:
+        from bccsu.filr import filr_open
         content = filr_open(path).read()
 
     # Parse the HTML content using lxml's HTML parser
@@ -94,6 +95,7 @@ def parse_redcap_data_dict(path, local=False):
         custom_alignment = None
         maximum = None
         minimum = None
+        adjusted_question_number = None
         span = field_attribute.xpath('./span')
         for s in span:
             if s.xpath('./text()')[0] == 'Field Annotation':
@@ -107,7 +109,9 @@ def parse_redcap_data_dict(path, local=False):
                 maximum = float(max_raw[0][1:-1])
             elif s.xpath('./text()')[0] == 'Min:':
                 min_raw = s.xpath('../span[text()="Min:"]/following-sibling::text()[1]')
-                minimum = float(min_raw[0][:-2])
+                minimum = float(re.findall(r'\d+', min_raw[0])[0])
+            elif 'Question number:' in s.xpath('./text()')[0]:
+                adjusted_question_number = s.xpath('following-sibling::text()[1]')[0].replace(' ', '')
 
         results.append({'instrument': instrument,
                         'section': section,
@@ -121,7 +125,8 @@ def parse_redcap_data_dict(path, local=False):
                         'question_table': question_table,
                         'custom_alignment': custom_alignment,
                         'minimum': minimum,
-                        'maximum': maximum})
+                        'maximum': maximum,
+                        'adjusted_question_number': adjusted_question_number})
 
     data_dictionary = pd.DataFrame(results)
     return data_dictionary

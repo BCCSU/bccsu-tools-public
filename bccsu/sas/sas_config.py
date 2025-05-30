@@ -1,3 +1,5 @@
+# The java I need
+# https://www.azul.com/downloads/?version=java-8-lts&os=windows&architecture=x86-64-bit&package=jdk#zulu
 import os
 
 SAS_config_names = ["autogen_winlocal"]
@@ -14,7 +16,7 @@ cpW += ";C:\\Users\\camer\\.virtualenvs\\bccsu\\Lib\\site-packages\\saspy\\java\
 
 
 autogen_winlocal = {
-    "java": "C:\\Program Files\\SASHome\\SASPrivateJavaRuntimeEnvironment\\9.4\\jre\\bin\\java.exe",
+    "java": r"C:\Program Files\Zulu\zulu-8\bin\java.exe",
     "encoding": "windows-1252",
     "classpath": cpW
 }
