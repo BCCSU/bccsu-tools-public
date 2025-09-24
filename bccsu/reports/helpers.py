@@ -38,6 +38,7 @@ class TableBuilder:
                                       title=f'{lookup} - {description}')[1][0]
 
     def write_table(self, table, title):
+        self.reset_height()
         self.height = write_table(self.ws, table,
                                   table_start_pos=[self.height + 2, 0],
                                   title=title)[1][0]
