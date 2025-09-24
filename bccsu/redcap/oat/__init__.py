@@ -3,6 +3,7 @@ import pandas as pd
 import re
 from bccsu.bccsu.stats import counts, text_counts, value_counts_single
 import ast
+import warnings
 
 
 class AnalyzeOAT:
@@ -14,6 +15,10 @@ class AnalyzeOAT:
         s = self.data_dictionary[self.data_dictionary['name'] == column]['restrictions'].values[0]
         if s is None:
             return np.ones(dataset.shape[0]).astype(bool)
+        # if 'arm-number' in s:
+        #     # This is something new Rhea added. I just have to skip the restriction until I know how to handle it...
+        #     warnings.warn(f'arm-number is in restriction: {column}')
+        #     return np.ones(dataset.shape[0]).astype(bool)
 
         def replacer(match):
             m = match.group(0)
@@ -134,7 +139,10 @@ class AnalyzeOAT:
                     pass
             table = table.drop(columns=['nan'], errors='ignore')
             counts_list.append(table)
-        current_counts = pd.concat(counts_list)
+        try:
+            current_counts = pd.concat(counts_list)
+        except ValueError:
+            current_counts = pd.DataFrame(['-'], index=['No Data'], columns=[column])
         return current_counts, classes
 
     def build_table(self, *args, strat='', classes=None, **kwargs):

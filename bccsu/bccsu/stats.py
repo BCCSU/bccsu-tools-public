@@ -1,5 +1,69 @@
 import pandas as pd
 import numpy as np
+from scipy.stats import chi2_contingency, fisher_exact
+
+def assoc_test_auto(x, y):
+    """
+    Decide between Fisher's exact (2x2 with small expected) and chi-square otherwise.
+    Returns NaN if a category total is zero (row/column sum == 0).
+
+    Parameters
+    ----------
+    x, y : array-like (categorical)
+
+    Returns
+    -------
+    dict with keys:
+      - test: 'fisher' or 'chi2' (or None if NaN)
+      - stat: test statistic (odds ratio for fisher; chi2 for chi-square)
+      - p_value: p-value (np.nan if not estimable)
+      - dof: degrees of freedom (chi-square only)
+      - expected: expected counts (chi-square only)
+      - observed: observed contingency table (numpy array)
+      - odds_ratio: for 2x2; NaN if any cell is zero
+    """
+    df = pd.DataFrame({"x": x, "y": y}).dropna()
+    if df.empty:
+        return {"test": None, "stat": np.nan, "p_value": np.nan,
+                "dof": None, "expected": None, "observed": np.array([[]]),
+                "odds_ratio": np.nan}
+
+    ct = pd.crosstab(df["x"], df["y"])
+    observed = ct.values
+
+    # If any row or column sum is zero, not estimable
+    if (observed.sum(axis=1) == 0).any() or (observed.sum(axis=0) == 0).any() or len(observed) == 1:
+        return {"test": None, "stat": np.nan, "p_value": np.nan,
+                "dof": None, "expected": None, "observed": observed,
+                "odds_ratio": np.nan}
+
+    r, c = observed.shape
+
+    # Chi-square (to get expected counts and for non-2x2 cases)
+    chi2, p_chi2, dof, expected = chi2_contingency(observed, correction=False)
+
+    if r == 2 and c == 2:
+        a, b, c2, d = observed.ravel()
+
+        # Odds ratio is undefined if any cell is zero -> NaN per your requirement
+        odds_ratio = np.nan if 0 in (a, b, c2, d) else (a * d) / (b * c2)
+
+        # Use Fisher if any expected cell < 5, else chi-square
+        if (expected < 5).any():
+            odds, p = fisher_exact(observed, alternative="two-sided")
+            return {"test": "fisher", "stat": odds, "p_value": p,
+                    "dof": None, "expected": None, "observed": observed,
+                    "odds_ratio": odds_ratio}
+        else:
+            return {"test": "chi2", "stat": chi2, "p_value": p_chi2,
+                    "dof": dof, "expected": expected, "observed": observed,
+                    "odds_ratio": odds_ratio}
+
+    # Larger than 2x2 -> chi-square
+    return {"test": "chi2", "stat": chi2, "p_value": p_chi2,
+            "dof": dof, "expected": expected, "observed": observed,
+            "odds_ratio": np.nan}
+
 
 
 def get_iqr(df, col=None):
@@ -223,27 +287,45 @@ def freqs(df, cols, strat=None, labels=None, continuous_vars=None, classes=None)
         df[strat] = [i % 2 for i in range(df.shape[0])]
     else:
         df = df[cols + [strat]].copy()
+    for col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
     strat_tables = []
+    tests = []
     if labels:
         cat_vars = [col for col in cols if col in labels.keys()]
         cont_vars = [col for col in cols if col not in cat_vars]
         cat_strat = strat_table(df, strat, cat_vars).reset_index()
 
         strat_tables.append(cat_strat)
+
+        for c in cat_vars:
+            result = assoc_test_auto(df[c], df[strat])
+            tests.append({'level_0': c, 'P Value': result['p_value'],
+                           'Test Type': result['test']})
     else:
         cont_vars = cols
 
     cont_strat = iqr_strat(df, strat, cont_vars).reset_index()
     cont_strat = cont_strat.rename(columns={'index': 'level_0'})
     cont_strat['level_1'] = ''
+    for c in cont_vars:
+        # Add logic later if needed.
+        tests.append({'level_0': c, 'P Value': np.nan, 'Test Type': np.nan})
+    tests = pd.DataFrame(tests)
+    tests['group'] = 1
 
     strat_tables.append(cont_strat)
 
     table = pd.concat(strat_tables)
+    table['group'] = 1
+    table['group'] = table.groupby('level_0')['group'].cumsum()
+
+    table = pd.merge(table, tests, how='left', on=['level_0', 'group'])
 
     table['level_0'] = pd.Categorical(table['level_0'], categories=cols, ordered=True)
     table = table.sort_values(['level_0', 'level_1'])
+    table.drop(columns=['group'], inplace=True)
 
     if labels is not None:
         for key, variable in table.groupby('level_0', observed=False):
