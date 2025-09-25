@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from bccsu.reports.excel_creator import add_note, write_table
+from bccsu.reports.excel_creator import add_note, write_table, set_page_title
 
 
 class TableBuilder:
@@ -17,7 +17,7 @@ class TableBuilder:
             self.ws = self.wb.active
             self.height = 1
 
-    def build(self, lookup, num=None, dataset=None, custom=False, description=None, **kwargs):
+    def build(self, lookup, num=None, dataset=None, custom=False, description=None, y_pos=0, **kwargs):
         self.reset_height()
         if dataset is None:
             dataset = self.default_df
@@ -27,34 +27,41 @@ class TableBuilder:
                 lookup = num
             try:
                 self.height = write_table(self.ws, self.anal.build_table([var_name], dataset=dataset),
-                                          table_start_pos=[self.height + 2, 0],
+                                          table_start_pos=[self.height + 2, y_pos],
                                           title=f'{lookup} - {var_name}: {self.get_desc(var_name)}')[1][0]
             except:
-                add_note(self.ws, f'No values for {var_name}', [self.height + 2, 0], [0, 5])
+                add_note(self.ws, f'No values for {var_name}', [self.height + 2, y_pos], [0, 5])
                 self.height += 4
         else:
             self.height = write_table(self.ws, self.anal.build_table([lookup], dataset=dataset, custom=True, **kwargs),
-                                      table_start_pos=[self.height + 2, 0],
+                                      table_start_pos=[self.height + 2, y_pos],
                                       title=f'{lookup} - {description}')[1][0]
 
-    def write_table(self, table, title):
+    def write_table(self, table, title, y_pos=0):
         self.reset_height()
         self.height = write_table(self.ws, table,
-                                  table_start_pos=[self.height + 2, 0],
+                                  table_start_pos=[self.height + 2, y_pos],
                                   title=title)[1][0]
 
-    def build_mean(self, lookup, num=None):
+    def build_mean(self, lookup, num=None, dataset=None, y_pos=0):
         self.reset_height()
+        if dataset is None:
+            dataset = self.default_df
         var_name = self.get_var_name(lookup)
         if num is not None:
             lookup = num
-        self.height = write_table(self.ws, self.get_mean([var_name]),
-                                  table_start_pos=[self.height + 2, 0],
+        self.height = write_table(self.ws, self.get_mean([var_name], df=dataset),
+                                  table_start_pos=[self.height + 2, y_pos],
                                   title=f'{lookup} - {var_name}: {self.get_desc(var_name)}')[1][0]
 
     def add_note(self, note):
         self.reset_height()
         add_note(self.ws, note, [self.height + 2, 0], [0, 5])
+        self.height += 1
+
+    def add_title(self, title):
+        self.reset_height()
+        set_page_title(self.ws, title, [self.height + 2, 0])
         self.height += 1
 
     def get_desc(self, variable):
@@ -71,7 +78,7 @@ class TableBuilder:
         assert row['question_type'].values[0] != 'descriptive'
         return row['name'].values[0]
 
-    def get_mean(self, columns, df=None):
+    def get_mean(self, columns, df=None, ):
         if df is None:
             df = self.default_df
         rows = []

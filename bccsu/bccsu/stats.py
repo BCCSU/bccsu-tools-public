@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from scipy.stats import chi2_contingency, fisher_exact
+from scipy.stats import ttest_ind, levene
 
 def assoc_test_auto(x, y):
     """
@@ -64,6 +65,78 @@ def assoc_test_auto(x, y):
             "dof": dof, "expected": expected, "observed": observed,
             "odds_ratio": np.nan}
 
+
+def t_test_auto(x, group, alternative="two-sided", use_levene=True):
+    """
+    Two-sample t-test for a continuous variable across exactly two groups.
+
+    Parameters
+    ----------
+    x : array-like (continuous)
+    group : array-like (categorical/indicator)
+    alternative : {'two-sided', 'less', 'greater'}
+    use_levene : bool, default True
+        If True, perform Levene’s test to choose equal_var. If Levene p<0.05 -> Welch (equal_var=False).
+
+    Returns
+    -------
+    dict with keys:
+      - test: 't'
+      - stat: t statistic (np.nan if not estimable)
+      - p_value: p-value (np.nan if not estimable)
+      - dof: degrees of freedom (Welch-Satterthwaite if unequal variances; else n1+n2-2)
+      - n1, n2: sample sizes used
+      - equal_var: bool or None
+      - groups: the sorted unique group labels used
+    """
+    df = pd.DataFrame({"x": x, "g": group}).dropna()
+    if df.empty:
+        return {"test": None, "stat": np.nan, "p_value": np.nan,
+                "dof": None, "n1": 0, "n2": 0, "equal_var": None, "groups": []}
+
+    groups = df["g"].unique()
+    if len(groups) != 2:
+        # Only defined for two groups
+        return {"test": None, "stat": np.nan, "p_value": np.nan,
+                "dof": None, "n1": 0, "n2": 0, "equal_var": None, "groups": list(np.sort(groups))}
+
+    g_sorted = np.sort(groups)
+    a = df.loc[df["g"] == g_sorted[0], "x"].astype(float).to_numpy()
+    b = df.loc[df["g"] == g_sorted[1], "x"].astype(float).to_numpy()
+
+    a = a[~np.isnan(a)]
+    b = b[~np.isnan(b)]
+    n1, n2 = len(a), len(b)
+
+    if n1 < 2 or n2 < 2:
+        return {"test": None, "stat": np.nan, "p_value": np.nan,
+                "dof": None, "n1": n1, "n2": n2, "equal_var": None, "groups": list(g_sorted)}
+
+    equal_var = False  # default to Welch for robustness
+    if use_levene:
+        try:
+            _, p_var = levene(a, b, center="median")
+            equal_var = p_var >= 0.05
+        except Exception:
+            # Fall back to Welch if Levene fails
+            equal_var = False
+
+    res = ttest_ind(a, b, equal_var=equal_var, alternative=alternative)
+    t_stat = float(res.statistic)
+    p_val = float(res.pvalue)
+
+    if equal_var:
+        dof = n1 + n2 - 2
+    else:
+        # Welch-Satterthwaite approximation
+        va = np.var(a, ddof=1)
+        vb = np.var(b, ddof=1)
+        num = (va / n1 + vb / n2) ** 2
+        den = (va**2) / (n1**2 * (n1 - 1)) + (vb**2) / (n2**2 * (n2 - 1))
+        dof = float(num / den) if den > 0 else np.nan
+
+    return {"test": "t", "stat": t_stat, "p_value": p_val,
+            "dof": dof, "n1": n1, "n2": n2, "equal_var": equal_var, "groups": list(g_sorted)}
 
 
 def get_iqr(df, col=None):
@@ -310,8 +383,11 @@ def freqs(df, cols, strat=None, labels=None, continuous_vars=None, classes=None)
     cont_strat = cont_strat.rename(columns={'index': 'level_0'})
     cont_strat['level_1'] = ''
     for c in cont_vars:
-        # Add logic later if needed.
-        tests.append({'level_0': c, 'P Value': np.nan, 'Test Type': np.nan})
+        # t-test for continuous vars across strat groups (only if exactly two groups with data)
+        t_res = t_test_auto(df[c], df[strat])
+        tests.append({'level_0': c,
+                      'P Value': t_res['p_value'],
+                      'Test Type': ('student_t' if t_res.get('equal_var') else 'welch_t') if t_res.get('test') == 't' else np.nan})
     tests = pd.DataFrame(tests)
     tests['group'] = 1
 
