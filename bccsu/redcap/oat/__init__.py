@@ -15,10 +15,10 @@ class AnalyzeOAT:
         s = self.data_dictionary[self.data_dictionary['name'] == column]['restrictions'].values[0]
         if s is None:
             return np.ones(dataset.shape[0]).astype(bool)
-        # if 'arm-number' in s:
-        #     # This is something new Rhea added. I just have to skip the restriction until I know how to handle it...
-        #     warnings.warn(f'arm-number is in restriction: {column}')
-        #     return np.ones(dataset.shape[0]).astype(bool)
+        if 'arm-number' in s:
+            # This is something new Rhea added. I just have to skip the restriction until I know how to handle it...
+            warnings.warn(f'arm-number is in restriction: {column}')
+            return np.ones(dataset.shape[0]).astype(bool)
 
         def replacer(match):
             m = match.group(0)
@@ -114,7 +114,9 @@ class AnalyzeOAT:
             else:
                 dataset_restricted = dataset
 
-            table = value_counts_single(dataset_restricted[column].fillna('nan').astype(str).str.replace('.0', '', regex=False).replace('NA', 'nan'))
+            table = value_counts_single(
+                dataset_restricted[column].fillna('nan').astype(str).str.replace('.0', '', regex=False).replace('NA',
+                                                                                                                'nan'))
             if column not in text_columns:
                 table = table.T
                 table.index = [table.columns.name]
