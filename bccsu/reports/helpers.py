@@ -22,16 +22,17 @@ class TableBuilder:
         if dataset is None:
             dataset = self.default_df
         if not custom:
-            var_name = self.get_var_name(lookup)
+            var_names = self.get_var_names(lookup)
             if num is not None:
                 lookup = num
-            try:
-                self.height = write_table(self.ws, self.anal.build_table([var_name], dataset=dataset),
-                                          table_start_pos=[self.height + 2, y_pos],
-                                          title=f'{lookup} - {var_name}: {self.get_desc(var_name)}')[1][0]
-            except:
-                add_note(self.ws, f'No values for {var_name}', [self.height + 2, y_pos], [0, 5])
-                self.height += 4
+            for var_name in var_names:
+                try:
+                    self.height = write_table(self.ws, self.anal.build_table([var_name], dataset=dataset),
+                                              table_start_pos=[self.height + 2, y_pos],
+                                              title=f'{lookup} - {var_name}: {self.get_desc(var_name)}')[1][0]
+                except:
+                    add_note(self.ws, f'No values for {var_name}', [self.height + 2, y_pos], [0, 5])
+                    self.height += 4
         else:
             self.height = write_table(self.ws, self.anal.build_table([lookup], dataset=dataset, custom=True, **kwargs),
                                       table_start_pos=[self.height + 2, y_pos],
@@ -47,12 +48,13 @@ class TableBuilder:
         self.reset_height()
         if dataset is None:
             dataset = self.default_df
-        var_name = self.get_var_name(lookup)
+        var_names = self.get_var_names(lookup)
         if num is not None:
             lookup = num
-        self.height = write_table(self.ws, self.get_mean([var_name], df=dataset),
-                                  table_start_pos=[self.height + 2, y_pos],
-                                  title=f'{lookup} - {var_name}: {self.get_desc(var_name)}')[1][0]
+        for var_name in var_names:
+            self.height = write_table(self.ws, self.get_mean([var_name], df=dataset),
+                                      table_start_pos=[self.height + 2, y_pos],
+                                      title=f'{lookup} - {var_name}: {self.get_desc(var_name)}')[1][0]
 
     def add_note(self, note):
         self.reset_height()
@@ -70,13 +72,14 @@ class TableBuilder:
             desc = "No description available"
         return desc
 
-    def get_var_name(self, number):
+    def get_var_names(self, number):
         number = str(number)
         if number[-1] not in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
-            return number
-        row = self.data_dictionary[self.data_dictionary['adjusted_question_number'] == number]
-        assert row['question_type'].values[0] != 'descriptive'
-        return row['name'].values[0]
+            return [number]
+        row = self.data_dictionary[(self.data_dictionary['adjusted_question_number'] == number)
+                                   & (self.data_dictionary['question_type'] != 'descriptive')]
+        assert len(row) >= 1
+        return list(row['name'].values)
 
     def get_mean(self, columns, df=None, ):
         if df is None:
