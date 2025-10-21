@@ -38,9 +38,10 @@ class Session(saspy.SASsession):
             _session = super().__init__(cfgfile=sas_config_path)
 
         self._lazy_loaded = True
-        macro_path = Path(__file__).parent / 'sas_macros.sas'
+        with open(Path(__file__).parent / 'sas_macros.sas', 'r') as f:
+            macro_code = f.read()
         self.HTML_Style = 'listing'
-        self.submit(rf'%include "{macro_path}";'
+        self.submit(rf'{macro_code}'
                     rf'ods exclude all;')
         self.HTML_Style = 'listing'
         return session

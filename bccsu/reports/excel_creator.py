@@ -16,7 +16,14 @@ from time import sleep
 import os
 
 Path('logs').mkdir(exist_ok=True)
-
+if not logging.getLogger().handlers:
+    log_format = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+    log_file = Path("logs") / "excel_creator.log"
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter(log_format))
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter(log_format))
+    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
 
 def load_workbook(filename, template=None, *args, **kwargs):
     if template is None:
@@ -339,7 +346,9 @@ class ReportCreator:
         if filename is None:
             filename = Path('reports') / f'{Path.cwd().name}_{datetime.today().strftime('%d%b%Y').upper()}.xlsx'
         self.filename = Path(filename)
-        self.request_path = Path(request_path)
+        self.request_path = None
+        if request_path is not None:
+            self.request_path = Path(request_path)
         self.wb = self.load_workbook(filename, template=template, *args, **kwargs)
         self.ws = self.wb.active
 

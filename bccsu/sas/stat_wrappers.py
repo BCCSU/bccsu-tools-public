@@ -35,9 +35,12 @@ def bivar(function):
                 kwargs['prefix'] = table_prefix
             else:
                 table_prefix = prefix
-            row, nobs, _, _ = function(args[0], args[1], [variable], classes=class_val, **kwargs)
-            row['N'] = nobs
-            outputs.append(row)
+            try:
+                row, nobs, _, _ = function(args[0], args[1], [variable], classes=class_val, **kwargs)
+                row['N'] = nobs
+                outputs.append(row)
+            except TypeError:
+                warnings.warn(f'{variable} - Couldn\'t be estimated.')
 
         df = pd.concat(outputs)
         # if pvalue is of type string

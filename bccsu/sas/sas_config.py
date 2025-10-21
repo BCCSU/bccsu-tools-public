@@ -1,26 +1,21 @@
 # The java I need
 # https://www.azul.com/downloads/?version=java-8-lts&os=windows&architecture=x86-64-bit&package=jdk#zulu
-import os
+import os, saspy
 
-SAS_config_names = ["autogen_winlocal"]
+SAS_config_names = ["wsl_ssh"]
 
-cpW = ("C:\\Program Files\\SASHome\\SASDeploymentManager\\9.4\\products\\deploywiz__94550__prt__xx__sp0__1\\deploywiz"
-	   "\\sas.security.sspi.jar")
-cpW += (";C:\\Program Files\\SASHome\\SASDeploymentManager\\9.4\\products\\deploywiz__94550__prt__xx__sp0__1"
-		"\\deploywiz\\sas.svc.connection.jar")
-cpW += (";C:\\Program Files\\SASHome\\SASDeploymentManager\\9.4\\products\\deploywiz__94550__prt__xx__sp0__1"
-		"\\deploywiz\\log4j.jar")
-cpW += (";C:\\Program Files\\SASHome\\SASDeploymentManager\\9.4\\products\\deploywiz__94550__prt__xx__sp0__1"
-		"\\deploywiz\\sas.core.jar")
-cpW += ";C:\\Users\\camer\\.virtualenvs\\bccsu\\Lib\\site-packages\\saspy\\java\\saspyiom.jar"
-
-
-autogen_winlocal = {
-    "java": r"C:\Program Files\Zulu\zulu-8\bin\java.exe",
-    "encoding": "windows-1252",
-    "classpath": cpW
+wsl_ssh = {
+    'ssh': r'C:\Windows\System32\OpenSSH\ssh.exe',  # or your preferred ssh client
+    'host': '10.10.10.56',  # or WSL2 IP if needed
+    'port': 22,
+    # 'tunnel': 11912, # Important not to set. It sets hostname to localhost for some reason.
+    'rtunnel': 11913,
+    'luser': 'cgrant',
+    'identity': r'C:\Users\cgrant\.ssh\id_ed25519',  # uncomment if using key auth
+    'saspath': '/usr/local/SASHome/SASFoundation/9.4/sas',
+    'options': ['-fullstimer'],
+    'encoding': 'utf-8',
+    'tdir': '/tmp',
+    'localhost': '10.10.10.53',
+    # 'wait': 60
 }
-
-
-
-os.environ["PATH"] += ";C:\\Program Files\\SASHome\\SASFoundation\\9.4\\core\\sasext"
