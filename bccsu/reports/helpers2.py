@@ -3,24 +3,30 @@ import pandas as pd
 
 from bccsu.reports.excel_creator import add_note, write_table, set_page_title
 
-
 class TableBuilder:
     yesno = {'1': 'Yes', '0': 'No'}
 
-    def __init__(self, anal, report):
-        self.data_dictionary = anal.data_dictionary
-        self.default_df = anal.full_dataset
-        self.anal = anal
+    def __init__(self, data, report):
+        self.data_dictionary = data.meta
+        self.default_df = data.df
+        self.anal = data
         self.wb = report.wb
         self.ws = self.wb.active
         self.height = 1
         self.latest = None
+        self.restriction = None
         self.data_dictionary_question_numbers = self.data_dictionary['adjusted_question_number'].dropna().unique()
 
     def reset_height(self):
         if self.wb.active != self.ws:
             self.ws = self.wb.active
             self.height = 1
+
+    def set_restriction(self, restriction, name):
+        self.add_note(f'Restriction: {name}')
+        self.restriction = restriction
+        # todo check restriction whenever analyzing
+
 
     def get_collapse(self, lookup, collapse, dataset=None):
         if dataset is None:
@@ -66,67 +72,19 @@ class TableBuilder:
             dataset = lookup.to_frame()
             lookup = lookup.name
             custom = True
+        cols = self.anal.question_lookup(lookup)
 
-        if collapse:
-            dataset, lookup, kwargs['classes'] = self.get_collapse(lookup, collapse, dataset=dataset)
-            custom = True
-
-        if not custom:
-            var_names = self.get_var_names(lookup, contains=lookup_contains)
-            if num is not None:
-                lookup = num
-            for var_name in var_names:
-                try:
-                    if description is None:
-                        table = self.anal.build_table([var_name], dataset=dataset).fillna('0 (0.00%)')
-                        if len(table.columns) > 5 and transpose is None and stack is False:
-                            _transpose = True
-                        else:
-                            _transpose = False
-                        if _transpose:
-                            table = table.T
-                            table.rename(columns={table.columns[0]: 'count'}, inplace=True)
-                            table = self.sort_index(table, self.get_response_order(var_name))
-
-                        table.title = f'{lookup} - {var_name}: {self.get_desc(var_name)}'
-                        tables.append(table)
-                except:
-                    table = f'No values for {var_name}'
-                    add_note(self.ws, table, [self.height + 2, y_pos], [0, 5])
-                    self.height += 4
-
-            if stack:
-                tables = pd.concat(tables)
-                tables.fillna('0 (0.00%)', inplace=True)
-                if not dry_run:
-                    self.height = write_table(self.ws, tables,
-                                              table_start_pos=[self.height + 2, y_pos],
-                                              title=table.title)[1][0]
+        results = []
+        for col in cols:
+            counts = self.anal.pretty_counts(col)
+            results.append(counts)
+            meta = self.anal.meta.loc[col]
+            if meta['question_category'] == 'checkbox':
+                title = f'{meta['question_number']} - {col}: {meta["description"]}'
             else:
-                if not dry_run:
-                    for table in tables:
-                        self.height = write_table(self.ws, table,
-                                                  table_start_pos=[self.height + 2, y_pos],
-                                                  title=table.title)[1][0]
-
-        else:
-            if not isinstance(lookup, list):
-                lookup = [lookup]
-            table = self.anal.build_table(lookup, dataset=dataset, custom=True, **kwargs).fillna('0 (0.00%)')
-            if len(table.columns) > 5 and transpose is None and stack is False:
-                transpose = True
-            else:
-                transpose = False
-            if transpose:
-                table = table.T
-            table.title = f'{description}'
-            if not dry_run:
-                self.height = write_table(self.ws, table,
-                                          table_start_pos=[self.height + 2, y_pos],
-                                          title=table.title)[1][0]
-            tables.append(table)
-        self.latest = tables
-        return tables
+                title = None
+            self.write_table(counts, title=title)
+        return results
 
     def write_table(self, table, title, y_pos=0):
         self.reset_height()
@@ -135,7 +93,8 @@ class TableBuilder:
                                   title=title)[1][0]
         self.latest = table
 
-    def build_mean(self, lookup, num=None, dataset=None, y_pos=0, custom=False, description=None, lookup_contains='', dry_run=False):
+    def build_mean(self, lookup, num=None, dataset=None, y_pos=0, custom=False, description=None, lookup_contains='',
+                   dry_run=False):
         self.reset_height()
         if dataset is None:
             dataset = self.default_df
@@ -267,7 +226,7 @@ Question Table:""")
 
     @staticmethod
     def sort_index(table, order):
-        sort_order = {v: i  for i, v in enumerate(order)}
+        sort_order = {v: i for i, v in enumerate(order)}
 
         table['_sort_key'] = table.index.map(lambda x: sort_order.get(x, 99))
         return table.sort_values('_sort_key').drop('_sort_key', axis=1).fillna('0 (0.00%)')

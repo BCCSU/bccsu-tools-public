@@ -2,8 +2,11 @@ from lxml import etree
 import pandas as pd
 import re
 
+import pandas as pd
+from lxml import etree
+import numpy as np
 
-def parse_redcap_data_dict(path, local=False):
+def parse_redcap_data_dict(path):
     """
     Get the redcap data dictionary from the redcap site and copy the html of the table into a file.
     This function will parse that file.
@@ -12,15 +15,22 @@ def parse_redcap_data_dict(path, local=False):
     :return:
     """
     # Load the HTML file
-    if local:
-        with open(path, 'r') as f:
-            content = f.read()
-    else:
-        from bccsu.filr import filr_open
-        content = filr_open(path).read()
+    with open(path, 'r') as f:
+        content = f.read()
+
 
     # Parse the HTML content using lxml's HTML parser
     html_tree = etree.HTML(content)
+    instruments_table = html_tree.xpath('//table[.//span[normalize-space(text())="Instruments"]]')
+
+    instruments_dict = {}
+    for row in instruments_table[0].xpath('.//tr'):
+        cols = row.xpath('.//td[@class="p-1"]')
+        if len(cols) > 0:
+            form_name = cols[1].xpath('text()')
+            if len(form_name) > 1:
+                raise Exception('Multiple forms found in instruments table.')
+            instruments_dict[cols[1].xpath('text()')[0].strip()] = [i.strip() for i in cols[2].xpath('text()')]
 
     main_table = html_tree.xpath('//table[@id="codebook-table"]')[0]
 
@@ -64,7 +74,7 @@ def parse_redcap_data_dict(path, local=False):
 
         field_attribute = columns.pop(0)
         field_attribute_text = field_attribute.xpath('./text()')
-        question_type = field_attribute_text[0]
+        question_type = field_attribute_text[0].strip()
 
         table = field_attribute.xpath('.//table')
         question_table = []
@@ -88,6 +98,7 @@ def parse_redcap_data_dict(path, local=False):
             question_type_split = question_type.split()
             question_type = question_type_split[0]
             question_sub_type = question_type_split[1][1:-1]
+            question_sub_type = question_sub_type.replace(')', '').strip()
         else:
             question_sub_type = None
 
@@ -114,6 +125,7 @@ def parse_redcap_data_dict(path, local=False):
                 adjusted_question_number = s.xpath('following-sibling::text()[1]')[0].replace(' ', '')
 
         results.append({'instrument': instrument,
+                        'event': instruments_dict[instrument],
                         'section': section,
                         'question_number': question_number,
                         'name': name,
@@ -129,4 +141,59 @@ def parse_redcap_data_dict(path, local=False):
                         'adjusted_question_number': adjusted_question_number})
 
     data_dictionary = pd.DataFrame(results)
-    return data_dictionary
+
+    assert not data_dictionary['name'].duplicated().any()
+    meta_dict = {}
+    for _, row in data_dictionary.iterrows():
+        row = row.dropna().to_dict()
+        meta_dict[row['name']] = row
+        if row['question_type'] == 'checkbox':
+            for level in row['question_table']:
+                subrow = row.copy()
+                subrow.pop('question_table')
+                subrow['question_type'] = 'yesno'
+                subrow['description'] = level['description']
+                subrow['question_table'] = [{'value': '1', 'description': 'Yes'},
+                                            {'value': '0', 'description': 'No'}]
+                subrow['checkbox'] = True
+                meta_dict[level['variable_name']] = subrow
+
+    meta = pd.DataFrame(meta_dict).T
+    meta.loc[meta['checkbox'].isna(), 'checkbox'] = False
+    meta['description'] = meta['description'].fillna('No Description')
+
+    meta.loc[(meta['question_sub_type'] == '')] = np.nan
+
+    checkbox = ['checkbox']
+    categorical = ['dropdown', 'radio', 'radio, Required', 'yesno']
+    continuous = ['slider', 'calc']
+    text = ['descriptive', 'text', 'notes']
+    skipped = ['file']
+
+    numeric_subtypes = ['number', 'integer']
+    skip_subtypes = ['autocomplete', 'signature']
+    date_subtypes = ['date_dmy']
+
+
+    meta.loc[meta['question_type'].isin(checkbox), 'question_category'] = 'checkbox'
+    meta.loc[meta['question_type'].isin(text), 'question_category'] = 'text'
+    meta.loc[meta['question_type'].isin(categorical), 'question_category'] = 'categorical'
+    meta.loc[(meta['question_type'].isin(continuous) |
+              meta['question_sub_type'].isin(numeric_subtypes)), 'question_category'] = 'numeric'
+    meta.loc[meta['question_sub_type'].isin(date_subtypes), 'question_category'] = 'date'
+
+    unhandled_mask = ~meta['question_category'].isna()
+    meta_uh = meta.loc[unhandled_mask]
+    question_types = set(meta_uh['question_type'].dropna().unique())
+    handled_question_types = set(checkbox + categorical + continuous + text + skipped)
+    unhandled_questions = question_types.difference(set(handled_question_types))
+    if len(unhandled_questions) > 0:
+        raise Exception(f'Unhandled question types: {unhandled_questions}')
+
+    sub_question_types = set(meta_uh['question_sub_type'].dropna().unique())
+    sub_handled_question_types = set(numeric_subtypes + date_subtypes + skip_subtypes)
+    unhandled_sub_questions = set(sub_question_types).difference(sub_handled_question_types)
+    if len(unhandled_sub_questions) > 0:
+        raise Exception(f'Unhandled question subtypes: {set(sub_question_types).difference(sub_handled_question_types)}')
+
+    return meta

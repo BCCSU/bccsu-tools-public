@@ -15,10 +15,10 @@ class AnalyzeOAT:
         s = self.data_dictionary[self.data_dictionary['name'] == column]['restrictions'].values[0]
         if s is None:
             return np.ones(dataset.shape[0]).astype(bool)
-        if 'arm-number' in s:
-            # This is something new Rhea added. I just have to skip the restriction until I know how to handle it...
-            warnings.warn(f'arm-number is in restriction: {column}')
-            return np.ones(dataset.shape[0]).astype(bool)
+        # if 'arm-number' in s:
+        #     # This is something new Rhea added. I just have to skip the restriction until I know how to handle it...
+        #     warnings.warn(f'arm-number is in restriction: {column}')
+        #     return np.ones(dataset.shape[0]).astype(bool)
 
         def replacer(match):
             m = match.group(0)
@@ -67,7 +67,8 @@ class AnalyzeOAT:
             columns_corrected = []
             rename_rows = {}
             for column in columns:
-                if column not in dataset.columns:
+                qtype = self.data_dictionary.loc[self.data_dictionary['name'] == column, 'question_type'].iloc[0]
+                if 'checkbox' in qtype or column not in dataset.columns:
                     data_rec = self.data_dictionary[self.data_dictionary['name'] == column]
                     # levels = ast.literal_eval(data_rec['question_table'].iloc[0])
                     levels = data_rec['question_table'].iloc[0]

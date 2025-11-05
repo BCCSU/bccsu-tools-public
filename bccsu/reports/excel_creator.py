@@ -129,7 +129,12 @@ def write_table(ws, df, table_start_pos=None, write_index=True, write_headers=Tr
         table_start_pos[0] += 1
 
     if write_index:
-        df_temp = df.reset_index()
+        try:
+            df_temp = df.reset_index()
+        except ValueError:
+            df_temp = df.copy()
+            df_temp.index.name = ''
+            df_temp.reset_index(inplace=True)
     else:
         df_temp = df
 
