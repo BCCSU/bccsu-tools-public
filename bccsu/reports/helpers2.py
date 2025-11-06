@@ -27,105 +27,52 @@ class TableBuilder:
         self.restriction = restriction
         # todo check restriction whenever analyzing
 
-
-    def get_collapse(self, lookup, collapse, dataset=None):
-        if dataset is None:
-            dataset = self.default_df
-        temp_df = dataset[[]].copy()
-
-        if self.get_type(lookup) == 'radio':
-            missing_mask = dataset[lookup].isin(['R', 'N', 'D', None])
-            array = dataset[lookup].copy()
-            array[missing_mask] = np.nan
-            temp_df = array.to_frame()
-            keys = list(collapse.keys())
-            items = {str(i): keys[i] for i in range(len(collapse))}
-            classes = items
-            array_2 = array.copy()
-            for i, (key, value) in enumerate(collapse.items()):
-                array_2[array.isin(value)] = str(i)
-            array_2.name = lookup
-            temp_df = array_2.to_frame()
-
-        else:
-            missing_mask = (dataset[[f'{lookup}___{i}' for i in ['r', 'n', 'd']]] == '1').any(axis=1)
-            for key, value in collapse.items():
-                columns = [f'{lookup}___{i}' for i in value]
-                for c in columns:
-                    if c not in dataset.columns:
-                        dataset[c] = np.nan
-                temp_df[key] = (dataset[columns] == '1').any(axis=1).astype(int)
-                temp_df.loc[missing_mask, key] = np.nan
-                classes = self.yesno
-            lookup = list(collapse.keys())
-        return temp_df, lookup, classes
+    def compare(self, n1, n2, title=None):
+        self.write_table(self.anal.comp(n1, n2), title=title)
 
     def build(self, lookup, num=None, dataset=None, custom=False, description=None, y_pos=0, lookup_contains='',
-              stack=False, transpose=None, collapse=False, dry_run=False, **kwargs):
+              stack=False, transpose=None, collapse=False, title=None, dry_run=False, mask=None, **kwargs):
         self.reset_height()
         if dataset is None:
             dataset = self.default_df
         tables = []
+
+        if mask is not None:
+            restriction = mask & self.restriction
+        else:
+            restriction = self.restriction
 
         if isinstance(lookup, pd.core.series.Series):
             # If raw series is given.
             dataset = lookup.to_frame()
             lookup = lookup.name
             custom = True
-        cols = self.anal.question_lookup(lookup)
-
-        results = []
-        for col in cols:
-            counts = self.anal.pretty_counts(col)
-            results.append(counts)
-            meta = self.anal.meta.loc[col]
-            if meta['question_category'] == 'checkbox':
-                title = f'{meta['question_number']} - {col}: {meta["description"]}'
-            else:
-                title = None
-            self.write_table(counts, title=title)
+        if isinstance(lookup, str):
+            cols = self.anal.question_lookup(lookup)
+            results = []
+            for col in cols:
+                counts = self.anal.pretty_counts(col, restriction=restriction)
+                results.append(counts)
+                meta = self.anal.meta.loc[col]
+                if meta['question_category'] == 'checkbox':
+                    title = f'{meta['question_number']} - {col}: {meta["description"]}'
+                else:
+                    title = None
+                self.write_table(counts, title=title)
+        elif isinstance(lookup, list):
+            cols = lookup
+            results = self.anal.pretty_counts(cols, restriction=restriction)
+            self.write_table(results, title=title)
+        else:
+            raise ValueError('Invalid lookup')
         return results
 
-    def write_table(self, table, title, y_pos=0):
+    def write_table(self, table, title=None, y_pos=0):
         self.reset_height()
         self.height = write_table(self.ws, table,
                                   table_start_pos=[self.height + 2, y_pos],
                                   title=title)[1][0]
         self.latest = table
-
-    def build_mean(self, lookup, num=None, dataset=None, y_pos=0, custom=False, description=None, lookup_contains='',
-                   dry_run=False):
-        self.reset_height()
-        if dataset is None:
-            dataset = self.default_df
-        tables = []
-        if isinstance(lookup, pd.core.series.Series):
-            # If raw series is given.
-            dataset = lookup.to_frame()
-            lookup = lookup.name
-            custom = True
-        if not custom:
-            var_names = self.get_var_names(lookup, contains=lookup_contains)
-            if num is not None:
-                lookup = num
-            for var_name in var_names:
-                table = self.get_mean([var_name], df=dataset)
-                table.title = f'{lookup} - {var_name}: {self.get_desc(var_name)}'
-                if not dry_run:
-                    self.height = write_table(self.ws, table,
-                                              table_start_pos=[self.height + 2, y_pos],
-                                              title=table.title)[1][0]
-                tables.append(table)
-        else:
-            table = self.get_mean([lookup], df=dataset)
-            table.title = f'{lookup} - {description}'
-            if not dry_run:
-                self.height = write_table(self.ws, self.get_mean([lookup], df=dataset),
-                                          table_start_pos=[self.height + 2, y_pos],
-                                          title=table.title)[1][0]
-            tables.append(table)
-        self.latest = tables
-        return tables
 
     def add_note(self, note):
         self.reset_height()
@@ -146,43 +93,6 @@ class TableBuilder:
     def get_type(self, variable):
         qtype = self.data_dictionary[self.data_dictionary['name'] == variable]['question_type'].values[0]
         return qtype
-
-    def get_var_names(self, number, contains=''):
-        number = str(number)
-        if number not in self.data_dictionary_question_numbers:
-            return [number]
-        contains_mask = True
-        if contains:
-            contains_mask = self.data_dictionary['name'].str.contains(contains)
-
-        row = self.data_dictionary[(self.data_dictionary['adjusted_question_number'] == number)
-                                   & (self.data_dictionary['question_type'] != 'descriptive')
-                                   & contains_mask]
-        assert len(row) >= 1
-        return list(row['name'].values)
-
-    def get_mean(self, columns, df=None, ):
-        if df is None:
-            df = self.default_df
-        rows = []
-        existing_columns = [c for c in columns if c in df.columns]
-        for column in existing_columns:
-            x = df[column].copy()
-            x[x == 'D'] = np.nan
-            x[x == 'R'] = np.nan
-            x[x == 'N'] = np.nan
-
-            x = x.astype(float)
-            row = pd.DataFrame([{'Mean': x.mean(),
-                                 'std': x.std(),
-                                 'Median': np.nan if x.isna().all() else x.median(),
-                                 '25 quartile': x.quantile(0.25),
-                                 '75 quartile': x.quantile(0.75),
-                                 'N': (~x.isna()).sum()}], index=[column])
-            rows.append(row)
-        table = pd.concat(rows)
-        self.latest = table
-        return table
 
     def desc_table(self, table):
         table.index = (table.index + ': '

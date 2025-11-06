@@ -90,6 +90,9 @@ def parse_redcap_data_dict(path):
                     question_table.append({'value': columns[0],
                                            'description': second_column})
                 else:
+                    if columns[0] == 'Parent':
+                        # An accidental category put into R2R.
+                        continue
                     question_table.append({'value': columns[0],
                                            'variable_name': columns[1],
                                            'description': columns[2]})

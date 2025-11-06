@@ -2,8 +2,9 @@ import re
 
 import numpy as np
 import pandas as pd
+
 from bccsu.bccsu.stats import freqs
-from bccsu.redcap import parse_redcap_data_dict
+
 
 # df_raw = pd.read_parquet('data/r2r_22oct25.parquet')
 # meta = parse_redcap_data_dict('codebook/codebook.html', local=True)
@@ -13,9 +14,11 @@ class RedCap:
     def __init__(self, df, meta):
         self.meta = meta
         self.df = df
+        self.restriction = None
 
     def create_restriction_mask(self, key):
         s = self.meta.loc[key]['restrictions']
+
         if pd.isna(s):
             return np.ones(self.df.shape[0]).astype(bool)
 
@@ -78,8 +81,8 @@ class RedCap:
         # Check if numeric
         array = self.df[key].copy()
         array[mask] = np.nan
-        is_numeric = array.str.replace(',', '').str.replace('.', '').str.isnumeric()
-        if not is_numeric.all():
+        is_numeric = self.check_numeric(key)
+        if not is_numeric:
             raise Exception(f'Not numeric: {key}')
         array = array.astype(float)
         return array
@@ -115,7 +118,7 @@ class RedCap:
         array[mask] = np.nan
         return array
 
-    def clean(self, keys):
+    def clean(self, keys, restriction=None):
         if isinstance(keys, str):
             keys = [keys]
 
@@ -124,6 +127,8 @@ class RedCap:
             question_category = self.meta.loc[key]['question_category']
             restrictions_mask = self.create_restriction_mask(key)
             missingness_mask = self.create_missingness_mask(key)
+            if restriction is not None:
+                restrictions_mask &= restriction
             mask = ~(restrictions_mask & missingness_mask)
             if question_category == 'categorical':
                 arrays.append(self._clean_categorical(key, mask))
@@ -141,7 +146,6 @@ class RedCap:
                     arrays.append(self._clean_categorical(check_box_var, mask))
             else:
                 raise Exception('Question type not recognized.')
-
 
         if len(arrays) > 1:
             df = pd.concat(arrays, axis=1)
@@ -169,23 +173,23 @@ class RedCap:
             result = self.df[keys]
         return result
 
-    def _pretty_counts(self, key, numeric=False, dropna=False):
-        c = self.clean(key)
+    def _pretty_counts(self, key, numeric=False, dropna=False, restriction=None):
+        c = self.clean(key, restriction)
         counts = c.value_counts()
         if numeric:
             return counts
         pct = c.value_counts(normalize=True).mul(100)
         if not dropna:
-            counts['Missing'] = c.isna().sum().values[0]
-            pct['Missing'] = (c.isna().sum() / c.shape[0] * 100).values[0]
+            counts['Missing'] = c.isna().sum()
+            pct['Missing'] = (c.isna().sum() / c.shape[0] * 100)
         counts_array = counts.map(str) + pct.map(lambda x: f" ({x:.2f}%)")
         counts_array['Total'] = str(c.dropna().shape[0])
         counts_array.name = (f"{self.meta.loc[key].get('question_number')} - {key}: "
                              f"{self.meta.loc[key].get('description')}")
         return counts_array
 
-    def _pretty_iqr(self, key):
-        c = self.clean(key).iloc[:, 0]
+    def _pretty_iqr(self, key, restriction=None):
+        c = self.clean(key, restriction)
 
         result = pd.DataFrame([{'Mean': c.mean(),
                                 'std': c.std(),
@@ -197,7 +201,8 @@ class RedCap:
                                      f"{self.meta.loc[key].get('description')}"])
         return result
 
-    def pretty_counts(self, keys, dropna=False, numeric=False):
+    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None):
+        # todo if multiple checkbox columns. Stack side-by-side.
         if isinstance(keys, str):
             keys = [keys]
         question_category = self.meta.loc[keys[0]]['question_category']
@@ -236,7 +241,7 @@ class RedCap:
 
         counts = []
         for key in expanded_keys:
-            counts.append(self._pretty_counts(key, numeric=numeric))
+            counts.append(self._pretty_counts(key, numeric=numeric, restriction=restriction))
         counts = pd.concat(counts, axis=1)
 
         if question_category != 'text':
@@ -254,11 +259,14 @@ class RedCap:
 
         return counts
 
-    def comp(self, strat, columns):
+    def comp(self, strat, columns, restriction=None):
         if self.meta.loc[strat]['question_category'] != 'categorical':
             raise Exception('Stratification must be categorical.')
 
-        df = self.clean([strat] + columns)
+        if isinstance(columns, str):
+            columns = [columns]
+
+        df = self.clean([strat] + columns, restriction)
         classes = {}
         for i in [strat] + columns:
             if self.meta.loc[i]['question_category'] != 'numeric' or not self.check_numeric(i):
@@ -269,8 +277,11 @@ class RedCap:
         return freqs(df, columns, strat=strat, labels=classes)
 
     def collapse(self, key, new_name, collapse_dict):
-        if new_name in self.df.columns:
+        # todo allow for multiple keys if all are using the same collapse dict.
+        if new_name in self.df.columns:  # todo only look at columns that are not custom.
             raise Exception('Name already exists.')
+        if key not in self.meta.index:
+            raise Exception('Key not found.')
 
         question_category = self.meta.loc[key]['question_category']
         if question_category == 'categorical':
@@ -301,8 +312,7 @@ class RedCap:
             yesno = [{'value': '1', 'description': 'Yes'}, {'value': '0', 'description': 'No'}]
 
             new_qt = []
-            template_array = pd.DataFrame(np.zeros(self.df.shape[0]))
-            template_array[:] = None
+            template_array = pd.Series([None] * self.df.shape[0], dtype="object")
             mask = self.df[[f"{key}___{q['value']}" for q in qt]].isin(['0', '1']).all(axis=1)
             template_array[mask] = '0'
             desc = []
@@ -324,7 +334,7 @@ class RedCap:
                 self.meta.at[new_name_cat, 'question_table'] = yesno
                 self.meta.at[new_name_cat, 'question_category'] = 'categorical'
                 self.meta.at[new_name_cat, 'question_number'] = 'Derived'
-                self.df[new_name_cat] = array
+                self.df.loc[:, new_name_cat] = array
                 desc.append(description)
 
             self.meta.loc[new_name] = self.meta.loc[key]
@@ -336,6 +346,8 @@ class RedCap:
 
             for value in ['n', 'd', 'r']:
                 self.df[f'{new_name}___{value}'] = self.df[f'{key}___{value}']
+
+            self.df = self.df.copy()
 
         else:
             raise Exception('Stratification must be categorical or checkbox.')
@@ -354,10 +366,6 @@ class RedCap:
         self.meta.loc[array.name] = kwargs
         self.meta.at[array.name, 'name'] = array.name
         return self.df[array.name]
-
-
-
-
 
 
 class R2R(RedCap):
@@ -387,11 +395,10 @@ class R2R(RedCap):
         if qn in self.meta.index:
             return [qn]
         else:
+            self.meta.loc['sud_table']
             return self.meta[((self.meta['question_number'] == qn) &
-                              ~self.meta['checkbox'].astype(bool))]['name'].index.tolist()
-
-
-
+                              ~self.meta['checkbox'].astype(bool) &
+                              (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
 
 # Build MetaFrame
 # r2r = R2R(df_raw, meta)
