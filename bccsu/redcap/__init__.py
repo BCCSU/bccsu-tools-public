@@ -165,18 +165,19 @@ def parse_redcap_data_dict(path):
     meta.loc[meta['checkbox'].isna(), 'checkbox'] = False
     meta['description'] = meta['description'].fillna('No Description')
 
-    meta.loc[(meta['question_sub_type'] == '')] = np.nan
+    meta.loc[(meta['question_sub_type'] == ''), 'question_sub_type'] = np.nan
 
     checkbox = ['checkbox']
-    categorical = ['dropdown', 'radio', 'radio, Required', 'yesno']
+    categorical = ['dropdown', 'radio', 'yesno']
     continuous = ['slider', 'calc']
     text = ['descriptive', 'text', 'notes']
     skipped = ['file']
 
     numeric_subtypes = ['number', 'integer']
-    skip_subtypes = ['autocomplete', 'signature']
+    skip_subtypes = ['autocomplete', 'signature', 'email', 'phone']
     date_subtypes = ['date_dmy']
 
+    meta['question_type'] = meta['question_type'].str.replace(', Required', '')
 
     meta.loc[meta['question_type'].isin(checkbox), 'question_category'] = 'checkbox'
     meta.loc[meta['question_type'].isin(text), 'question_category'] = 'text'

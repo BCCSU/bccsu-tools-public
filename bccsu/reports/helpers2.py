@@ -28,7 +28,8 @@ class TableBuilder:
         # todo check restriction whenever analyzing
 
     def compare(self, n1, n2, title=None):
-        self.write_table(self.anal.comp(n1, n2), title=title)
+        c = self.anal.comp(n1, n2)
+        self.write_table(c, title=c.title)
 
     def build(self, lookup, num=None, dataset=None, custom=False, description=None, y_pos=0, lookup_contains='',
               stack=False, transpose=None, collapse=False, title=None, dry_run=False, mask=None, **kwargs):
@@ -58,10 +59,14 @@ class TableBuilder:
                     title = f'{meta['question_number']} - {col}: {meta["description"]}'
                 else:
                     title = None
+                if transpose:
+                    counts = counts.T
                 self.write_table(counts, title=title)
         elif isinstance(lookup, list):
             cols = lookup
             results = self.anal.pretty_counts(cols, restriction=restriction)
+            if transpose:
+                results = results.T
             self.write_table(results, title=title)
         else:
             raise ValueError('Invalid lookup')

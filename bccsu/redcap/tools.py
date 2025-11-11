@@ -13,7 +13,7 @@ from bccsu.bccsu.stats import freqs
 class RedCap:
     def __init__(self, df, meta):
         self.meta = meta
-        self.df = df
+        self.df = df.reset_index(drop=True)
         self.restriction = None
 
     def create_restriction_mask(self, key):
@@ -21,6 +21,10 @@ class RedCap:
 
         if pd.isna(s):
             return np.ones(self.df.shape[0]).astype(bool)
+        # else:
+        #     if 'ac_relapse' in s or 'ac_detox' in s:
+        #         # Handle later. It's not in the data for some reason.
+        #         return np.ones(self.df.shape[0]).astype(bool)
 
         def replacer(match):
             m = match.group(0)
@@ -118,7 +122,7 @@ class RedCap:
         array[mask] = np.nan
         return array
 
-    def clean(self, keys, restriction=None):
+    def clean(self, keys):
         if isinstance(keys, str):
             keys = [keys]
 
@@ -127,8 +131,6 @@ class RedCap:
             question_category = self.meta.loc[key]['question_category']
             restrictions_mask = self.create_restriction_mask(key)
             missingness_mask = self.create_missingness_mask(key)
-            if restriction is not None:
-                restrictions_mask &= restriction
             mask = ~(restrictions_mask & missingness_mask)
             if question_category == 'categorical':
                 arrays.append(self._clean_categorical(key, mask))
@@ -151,6 +153,8 @@ class RedCap:
             df = pd.concat(arrays, axis=1)
         else:
             df = arrays[0]
+        df.index = self.df.index
+
         return df
 
     def get_checkbox_variables(self, key):
@@ -174,14 +178,20 @@ class RedCap:
         return result
 
     def _pretty_counts(self, key, numeric=False, dropna=False, restriction=None):
-        c = self.clean(key, restriction)
+        c = self.clean(key)
+        if restriction is not None:
+            c = c[restriction]
         counts = c.value_counts()
         if numeric:
             return counts
         pct = c.value_counts(normalize=True).mul(100)
+        pct.fillna(0, inplace=True)
         if not dropna:
             counts['Missing'] = c.isna().sum()
-            pct['Missing'] = (c.isna().sum() / c.shape[0] * 100)
+            if c.shape[0] == 0:
+                pct['Missing'] = 0
+            else:
+                pct['Missing'] = (c.isna().sum() / c.shape[0] * 100)
         counts_array = counts.map(str) + pct.map(lambda x: f" ({x:.2f}%)")
         counts_array['Total'] = str(c.dropna().shape[0])
         counts_array.name = (f"{self.meta.loc[key].get('question_number')} - {key}: "
@@ -189,14 +199,17 @@ class RedCap:
         return counts_array
 
     def _pretty_iqr(self, key, restriction=None):
-        c = self.clean(key, restriction)
+        c = self.clean(key)
+        if restriction is not None:
+            c = c[restriction]
 
         result = pd.DataFrame([{'Mean': c.mean(),
                                 'std': c.std(),
                                 'Median': np.nan if c.isna().all() else c.median(),
                                 '25 quartile': c.quantile(0.25),
                                 '75 quartile': c.quantile(0.75),
-                                'N': (~c.isna()).sum()}],
+                                'N (Non-Missing)': (~c.isna()).sum(),
+                                'Missing': c.isna().sum()}],
                               index=[f"{self.meta.loc[key].get('question_number')} - {key}: "
                                      f"{self.meta.loc[key].get('description')}"])
         return result
@@ -220,7 +233,7 @@ class RedCap:
                             raise Exception('Classes need to match.')
                     else:
                         raise Exception('Classes need to match.')
-                iqrs.append(self._pretty_iqr(key))
+                iqrs.append(self._pretty_iqr(key, restriction=restriction))
             return pd.concat(iqrs)
 
         yesno = {'1': 'Yes', '0': 'No'}
@@ -246,9 +259,9 @@ class RedCap:
 
         if question_category != 'text':
             order = list(classes.values())
+            order += ['Total']
             if not dropna:
                 order += ['Missing']
-            order += ['Total']
 
             if len(order) < len(counts.index):
                 raise Exception('Not all classes represented.')
@@ -266,15 +279,23 @@ class RedCap:
         if isinstance(columns, str):
             columns = [columns]
 
-        df = self.clean([strat] + columns, restriction)
+        df = self.clean([strat] + columns)
+        if restriction is not None:
+            df = df[restriction]
         classes = {}
+        new_var_names = {}
         for i in [strat] + columns:
             if self.meta.loc[i]['question_category'] != 'numeric' or not self.check_numeric(i):
                 curr_class = self.get_classes(i)
                 classes[i] = {int(key): item for key, item in curr_class.items()}
                 df[i] = df[i].astype(str).map({item: key for key, item in curr_class.items()})
-
-        return freqs(df, columns, strat=strat, labels=classes)
+            new_var_names[i] = f"{self.meta.loc[i].get('question_number')} - {i}: {self.meta.loc[i].get('description')}"
+        f = freqs(df, columns, strat=strat, labels=classes)
+        f.index = f.index.set_levels([pd.Index([new_var_names.get(x) for x in level])
+                                      if i == 0 else level
+                                      for i, level in enumerate(f.index.levels)])
+        f.title = f.title.replace(strat, new_var_names.get(strat))
+        return f
 
     def collapse(self, key, new_name, collapse_dict):
         # todo allow for multiple keys if all are using the same collapse dict.
@@ -362,6 +383,8 @@ class RedCap:
         if isinstance(kwargs.get('question_table'), dict):
             kwargs['question_table'] = [{'value': str(key), 'description': value}
                                         for key, value in kwargs['question_table'].items()]
+        assert self.df.shape[0] == array.shape[0]
+        array.index = self.df.index
         self.df[array.name] = array
         self.meta.loc[array.name] = kwargs
         self.meta.at[array.name, 'name'] = array.name
@@ -395,7 +418,6 @@ class R2R(RedCap):
         if qn in self.meta.index:
             return [qn]
         else:
-            self.meta.loc['sud_table']
             return self.meta[((self.meta['question_number'] == qn) &
                               ~self.meta['checkbox'].astype(bool) &
                               (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()

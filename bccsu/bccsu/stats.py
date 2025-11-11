@@ -347,7 +347,7 @@ def iqr_strat(df, strat, cols):
     return out
 
 
-def freqs(df, cols, strat=None, labels=None, continuous_vars=None, classes=None):
+def freqs(df, cols, strat=None, labels=None):
     # get order
     # split variables cat and cont
 
