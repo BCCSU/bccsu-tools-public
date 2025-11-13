@@ -284,13 +284,21 @@ class RedCap:
             df = df[restriction]
         classes = {}
         new_var_names = {}
+        new_columns = []
         for i in [strat] + columns:
-            if self.meta.loc[i]['question_category'] != 'numeric' or not self.check_numeric(i):
-                curr_class = self.get_classes(i)
-                classes[i] = {int(key): item for key, item in curr_class.items()}
-                df[i] = df[i].astype(str).map({item: key for key, item in curr_class.items()})
-            new_var_names[i] = f"{self.meta.loc[i].get('question_number')} - {i}: {self.meta.loc[i].get('description')}"
-        f = freqs(df, columns, strat=strat, labels=classes)
+            if self.meta.loc[i]['question_category'] == 'checkbox':
+                i = self.get_checkbox_variables(i)
+            else:
+                i = [i]
+            for j in i:
+                if self.meta.loc[j]['question_category'] != 'numeric' or not self.check_numeric(j):
+                    curr_class = self.get_classes(j)
+                    classes[j] = {int(key): item for key, item in curr_class.items()}
+                    df[j] = df[j].astype(str).map({item: key for key, item in curr_class.items()})
+                new_var_names[j] = f"{self.meta.loc[j].get('question_number')} - {j}: {self.meta.loc[j].get('description')}"
+                if j != strat:
+                    new_columns.append(j)
+        f = freqs(df, new_columns, strat=strat, labels=classes)
         f.index = f.index.set_levels([pd.Index([new_var_names.get(x) for x in level])
                                       if i == 0 else level
                                       for i, level in enumerate(f.index.levels)])

@@ -27,8 +27,12 @@ class TableBuilder:
         self.restriction = restriction
         # todo check restriction whenever analyzing
 
-    def compare(self, n1, n2, title=None):
-        c = self.anal.comp(n1, n2)
+    def compare(self, n1, n2, title=None, mask=None):
+        if mask is not None:
+            restriction = mask & self.restriction
+        else:
+            restriction = self.restriction
+        c = self.anal.comp(n1, n2, restriction=restriction)
         self.write_table(c, title=c.title)
 
     def build(self, lookup, num=None, dataset=None, custom=False, description=None, y_pos=0, lookup_contains='',
