@@ -21,6 +21,11 @@ class RedCap:
 
         if pd.isna(s):
             return np.ones(self.df.shape[0]).astype(bool)
+
+        # Temporary. Removes multipl [] in restrictions and leaves last most one.
+        # [y2_qi_staff_survey_arm_6][role_y2]='6' -> [role_y2]='6'
+        pattern = re.compile(r'(?:\[[0-9a-z_]+\])*(\[[0-9a-z_]+\]\s*=\s*(?:\'[^\']*\'|"[^"]*"|\d+))', re.IGNORECASE)
+        s = pattern.sub(r'\1', s)
         # else:
         #     if 'ac_relapse' in s or 'ac_detox' in s:
         #         # Handle later. It's not in the data for some reason.
