@@ -358,6 +358,7 @@ class ReportCreator:
         self.ws = self.wb.active
 
     def create_sheet(self, name, title=None):
+        name = name[:31]
         self.wb.create_sheet(name)
         self.ws = self.wb[name]
         self.wb.active = self.ws
