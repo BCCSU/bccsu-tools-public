@@ -368,9 +368,9 @@ def freqs(df, cols, strat=None, labels=None):
     if labels:
         cat_vars = [col for col in cols if col in labels.keys()]
         cont_vars = [col for col in cols if col not in cat_vars]
-        cat_strat = strat_table(df, strat, cat_vars).reset_index()
-
-        strat_tables.append(cat_strat)
+        if cat_vars:
+            cat_strat = strat_table(df, strat, cat_vars).reset_index()
+            strat_tables.append(cat_strat)
 
         for c in cat_vars:
             result = assoc_test_auto(df[c], df[strat])
