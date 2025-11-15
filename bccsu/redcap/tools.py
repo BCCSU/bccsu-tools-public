@@ -22,6 +22,8 @@ class RedCap:
         if pd.isna(s):
             return np.ones(self.df.shape[0]).astype(bool)
 
+        s = s.replace('\n\t\t\t\t', ' ')
+
         # Temporary. Removes multipl [] in restrictions and leaves last most one.
         # [y2_qi_staff_survey_arm_6][role_y2]='6' -> [role_y2]='6'
         pattern = re.compile(r'(?:\[[0-9a-z_]+\])*(\[[0-9a-z_]+\]\s*=\s*(?:\'[^\']*\'|"[^"]*"|\d+))', re.IGNORECASE)
@@ -202,6 +204,9 @@ class RedCap:
         counts_array.name = (f"{self.meta.loc[key].get('question_number')} - {key}: "
                              f"{self.meta.loc[key].get('description')}")
         return counts_array
+
+    def get_description_text(self, key):
+        return f"{self.meta.loc[key].get('question_number')} - {key}: {self.meta.loc[key].get('description')}"
 
     def _pretty_iqr(self, key, restriction=None):
         c = self.clean(key)
@@ -434,6 +439,16 @@ class R2R(RedCap):
             return self.meta[((self.meta['question_number'] == qn) &
                               ~self.meta['checkbox'].astype(bool) &
                               (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
+
+    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None):
+        counts = []
+        if isinstance(keys, str):
+            keys = [keys]
+        for key in keys:
+            if re.match(r'^.*?_12m[_\d]*?$', key):
+                restriction &= (self.df['nature_of_study_completion___11'] == '1')
+            counts.append(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=restriction))
+        return pd.concat(counts, axis=1)
 
 # Build MetaFrame
 # r2r = R2R(df_raw, meta)
