@@ -79,10 +79,12 @@ class RedCap:
             classes[row['value']] = row['description']
         return classes
 
-    def _clean_categorical(self, key, mask):
+    def _clean_categorical(self, key, mask, set_missing_na=False):
         array = self.df[key].copy()
         array[mask] = np.nan
         classes = self.get_classes(key)
+        if not set_missing_na:
+            classes.update({'R': 'Refused', 'N': 'Not Applicable', 'D': 'Don\'t Know'})
         array = pd.Series(pd.Categorical(array.map(classes),
                                          categories=list(classes.values()),
                                          ordered=True), name=key)
@@ -95,7 +97,7 @@ class RedCap:
         is_numeric = self.check_numeric(key)
         if not is_numeric:
             raise Exception(f'Not numeric: {key}')
-        array = array.astype(float)
+        array = pd.to_numeric(array, errors='coerce')
         return array
 
     def check_numeric(self, key):
@@ -129,18 +131,25 @@ class RedCap:
         array[mask] = np.nan
         return array
 
-    def clean(self, keys):
+    def clean(self, keys, set_missing_na=False, force_numeric=False):
+        """
+        If we know it is numeric, we can force it to stop from guessing. Applies to all columns given so be careful.
+        """
+
         if isinstance(keys, str):
             keys = [keys]
 
         arrays = []
         for key in keys:
+            if force_numeric and self.meta.loc[key]['question_category'] != 'numeric':
+                self.meta.loc[key, 'question_category'] = 'numeric'
             question_category = self.meta.loc[key]['question_category']
             restrictions_mask = self.create_restriction_mask(key)
-            missingness_mask = self.create_missingness_mask(key)
-            mask = ~(restrictions_mask & missingness_mask)
+            if set_missing_na:
+                restrictions_mask &= self.create_missingness_mask(key)
+            mask = ~restrictions_mask
             if question_category == 'categorical':
-                arrays.append(self._clean_categorical(key, mask))
+                arrays.append(self._clean_categorical(key, mask, set_missing_na=set_missing_na))
             elif question_category == 'numeric':
                 arrays.append(self._clean_numeric(key, mask))
             elif question_category == 'date':
@@ -152,7 +161,7 @@ class RedCap:
             elif question_category == 'checkbox':
                 check_box_vars = self.get_checkbox_variables(key)
                 for check_box_var in check_box_vars:
-                    arrays.append(self._clean_categorical(check_box_var, mask))
+                    arrays.append(self._clean_categorical(check_box_var, mask, set_missing_na=set_missing_na))
             else:
                 raise Exception('Question type not recognized.')
 
@@ -184,8 +193,8 @@ class RedCap:
             result = self.df[keys]
         return result
 
-    def _pretty_counts(self, key, numeric=False, dropna=False, restriction=None):
-        c = self.clean(key)
+    def _pretty_counts(self, key, numeric=False, dropna=False, restriction=None, set_missing_na=False):
+        c = self.clean(key, set_missing_na=set_missing_na)
         if restriction is not None:
             c = c[restriction]
         counts = c.value_counts()
@@ -218,13 +227,13 @@ class RedCap:
                                 'Median': np.nan if c.isna().all() else c.median(),
                                 '25 quartile': c.quantile(0.25),
                                 '75 quartile': c.quantile(0.75),
-                                'N (Non-Missing)': (~c.isna()).sum(),
-                                'Missing': c.isna().sum()}],
+                                'N (Numeric Non-Missing)': (~c.isna()).sum(),
+                                'Missing (Includes R,N,D)': c.isna().sum()}],
                               index=[f"{self.meta.loc[key].get('question_number')} - {key}: "
                                      f"{self.meta.loc[key].get('description')}"])
         return result
 
-    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None):
+    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None, set_missing_na=False):
         # todo if multiple checkbox columns. Stack side-by-side.
         if isinstance(keys, str):
             keys = [keys]
@@ -243,7 +252,14 @@ class RedCap:
                             raise Exception('Classes need to match.')
                     else:
                         raise Exception('Classes need to match.')
-                iqrs.append(self._pretty_iqr(key, restriction=restriction))
+                iqr_data = self._pretty_iqr(key, restriction=restriction)
+                if restriction is None:
+                    restriction = np.ones(self.df.shape[0]).astype(bool)
+                raw_data = self.df.loc[restriction, key]
+                if not set_missing_na:
+                    for item in ['R', 'N', 'D']:
+                        iqr_data[item] = (raw_data == item).sum()
+                iqrs.append(iqr_data)
             return pd.concat(iqrs)
 
         yesno = {'1': 'Yes', '0': 'No'}
@@ -269,6 +285,8 @@ class RedCap:
 
         if question_category != 'text':
             order = list(classes.values())
+            if not set_missing_na:
+                order += ['Refused', 'Not Applicable', 'Don\'t Know']
             order += ['Total']
             if not dropna:
                 order += ['Missing']
@@ -289,7 +307,7 @@ class RedCap:
         if isinstance(columns, str):
             columns = [columns]
 
-        df = self.clean([strat] + columns)
+        df = self.clean([strat] + columns, set_missing_na=set_missing_na)
         if restriction is not None:
             df = df[restriction]
         classes = {}
