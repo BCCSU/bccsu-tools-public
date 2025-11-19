@@ -366,9 +366,9 @@ class ReportCreator:
         self.ws = self.wb.active
 
     def create_sheet(self, name, title=None):
-        name = name[:31]
-        self.wb.create_sheet(name)
-        self.ws = self.wb[name]
+        sheet_name = name[:30]
+        self.wb.create_sheet(sheet_name)
+        self.ws = self.wb[sheet_name]
         self.wb.active = self.ws
         if title:
             self.set_page_title(title)
@@ -405,6 +405,15 @@ class ReportCreator:
                                 end_row=position[0] + merge[0],
                                 end_column=position[1] + merge[1])
         cell.style = 'SAS note'
+
+    def add_title(self, title, position=None):
+        logging.info(f"Writing Title to Excel:\n{title}")
+        if position is None:
+            position = [1, 1]
+        position[0] += 1
+        position[1] += 1
+        cell = self.ws.cell(row=position[0], column=position[1], value=title)
+        cell.style = 'SAS page title'
 
     def get_contiguous_sequences(self, codes):
         previous_index = [0 for _ in codes[0]]
