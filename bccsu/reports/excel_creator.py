@@ -58,6 +58,14 @@ def add_note(ws, note, position=None, merge=None):
                        end_column=position[1] + merge[1])
     cell.style = 'SAS note'
 
+def add_title(ws, title, position=None):
+    logging.info(f"Writing Title to Excel:\n{title}")
+    if position is None:
+        position = [1, 1]
+    position[0] += 1
+    position[1] += 1
+    cell = ws.cell(row=position[0], column=position[1], value=title)
+    cell.style = 'SAS page title'
 
 def get_contiguous_sequences(codes):
     previous_index = [0 for _ in codes[0]]
