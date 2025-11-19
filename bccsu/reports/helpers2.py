@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from bccsu.reports.excel_creator import add_note, write_table, set_page_title
+from bccsu.reports.excel_creator import add_note, write_table, set_page_title, add_title
 
 class TableBuilder:
     yesno = {'1': 'Yes', '0': 'No'}
@@ -82,6 +82,7 @@ class TableBuilder:
                                   table_start_pos=[self.height + 2, y_pos],
                                   title=title)[1][0]
         self.latest = table
+        return table
 
     def add_note(self, note):
         self.reset_height()
@@ -90,8 +91,8 @@ class TableBuilder:
 
     def add_title(self, title):
         self.reset_height()
-        set_page_title(self.ws, title, [self.height + 2, 0])
-        self.height += 1
+        add_title(self.ws, title, [self.height + 3, 0])
+        self.height += 2
 
     def get_desc(self, variable):
         desc = self.data_dictionary[self.data_dictionary['name'] == variable]['description'].values[0]
