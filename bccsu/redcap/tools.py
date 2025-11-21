@@ -6,10 +6,6 @@ import pandas as pd
 from bccsu.bccsu.stats import freqs
 
 
-# df_raw = pd.read_parquet('data/r2r_22oct25.parquet')
-# meta = parse_redcap_data_dict('codebook/codebook.html', local=True)
-#
-
 class RedCap:
     def __init__(self, df, meta):
         self.meta = meta
@@ -28,10 +24,6 @@ class RedCap:
         # [y2_qi_staff_survey_arm_6][role_y2]='6' -> [role_y2]='6'
         pattern = re.compile(r'(?:\[[0-9a-z_]+\])*(\[[0-9a-z_]+\]\s*=\s*(?:\'[^\']*\'|"[^"]*"|\d+))', re.IGNORECASE)
         s = pattern.sub(r'\1', s)
-        # else:
-        #     if 'ac_relapse' in s or 'ac_detox' in s:
-        #         # Handle later. It's not in the data for some reason.
-        #         return np.ones(self.df.shape[0]).astype(bool)
 
         def replacer(match):
             m = match.group(0)
@@ -300,7 +292,7 @@ class RedCap:
 
         return counts
 
-    def comp(self, strat, columns, restriction=None):
+    def comp(self, strat, columns, restriction=None, set_missing_na=False):
         if self.meta.loc[strat]['question_category'] != 'categorical':
             raise Exception('Stratification must be categorical.')
 
@@ -323,7 +315,8 @@ class RedCap:
                     curr_class = self.get_classes(j)
                     classes[j] = {int(key): item for key, item in curr_class.items()}
                     df[j] = df[j].astype(str).map({item: key for key, item in curr_class.items()})
-                new_var_names[j] = f"{self.meta.loc[j].get('question_number')} - {j}: {self.meta.loc[j].get('description')}"
+                new_var_names[
+                    j] = f"{self.meta.loc[j].get('question_number')} - {j}: {self.meta.loc[j].get('description')}"
                 if j != strat:
                     new_columns.append(j)
         f = freqs(df, new_columns, strat=strat, labels=classes)
@@ -467,45 +460,3 @@ class R2R(RedCap):
                 restriction &= (self.df['nature_of_study_completion___11'] == '1')
             counts.append(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=restriction))
         return pd.concat(counts, axis=1)
-
-# Build MetaFrame
-# r2r = R2R(df_raw, meta)
-
-# New data structure to help keep redcap organized.
-
-# r2r.pretty_counts('decrim_changes_15')
-# r2r.pretty_counts(['meth_route', 'coc_crk_route', 'benzodope_route', 'tranqdope_route'])
-#
-# r2r['1001']
-# r2r.pretty_counts('age')
-# r2r.pretty_counts('op_meth_tog_l6m_ave_daily')
-# r2r.pretty_counts('gender_oth')
-# r2r['sexuality_desc'].value_counts()
-# r2r.pretty_counts('sexuality_desc')
-# t = r2r.comp('use_alc', ['ill_drg_use', 'rx_drg_use', 'age'])
-#
-# r2r.collapse('curr_accom', 'stable_housing', {
-#     'Unstable Housing': ['1', '2', '6', '9'],  # SRO, Shelter, No fixed address, Hotel/motel
-#     'Stable Housing': ['3', '4', '7', '8', '10', '11']
-#     # Supportive housing, Treatment/Recovery, House, Apartment, With friends, With family
-# })
-#
-# r2r.pretty_counts('stable_housing')
-#
-# collapse = {
-#     'Employed': ['1', '2', '3'],  # Full time, Part time, Temporary/casual
-#     'Pension': ['4'],  # Work pension
-#     'Social assistance': ['5', '6', '7'],  # Regular welfare, Disability, Workers comp
-#     'Precarious': ['8', '9', '10', '14', '15'],
-#     # Friends/family/partner, Honoraria, Methadone reimbursement, Binning, Selling needles, Selling cig/tobacco
-#     'Sex work': ['11'],  # Sex for money
-#     'Illegal activities': ['12', '13', '98'],  # Selling drugs, Theft/robbery, Other criminal activity
-#     'Other': ['99']  # Other
-# }
-#
-# r2r.collapse('l6m_src_inc', 'income_l6m', collapse)
-# r2r.clean('income_l6m')
-# r2r['l6m_src_inc']
-# r2r.pretty_counts('income_l6m')
-# r2r.pretty_counts('l6m_src_inc')
-# print()
