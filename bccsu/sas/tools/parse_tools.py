@@ -61,7 +61,8 @@ def add_labels(df, classes, labels):
 
     df_clean['Parameter'] = df_clean['Parameter'].str.lower()
 
-    labels = {key.lower(): value for key, value in labels.items()}
+    if labels is not None:
+        labels = {key.lower(): value for key, value in labels.items()}
 
     if not classes:
         indices = ['Outcome', 'Parameter']

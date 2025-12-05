@@ -220,7 +220,7 @@ class RedCap:
                                 '25 quartile': c.quantile(0.25),
                                 '75 quartile': c.quantile(0.75),
                                 'N (Numeric Non-Missing)': (~c.isna()).sum(),
-                                'Missing (Includes R,N,D)': c.isna().sum()}],
+                                'Missing': c.isna().sum()}],
                               index=[f"{self.meta.loc[key].get('question_number')} - {key}: "
                                      f"{self.meta.loc[key].get('description')}"])
         return result
@@ -250,7 +250,9 @@ class RedCap:
                 raw_data = self.df.loc[restriction, key]
                 if not set_missing_na:
                     for item in ['R', 'N', 'D']:
-                        iqr_data[item] = (raw_data == item).sum()
+                        count = (raw_data == item).sum()
+                        if count > 0:
+                            iqr_data[item] = (raw_data == item).sum()
                 iqrs.append(iqr_data)
             return pd.concat(iqrs)
 
@@ -272,7 +274,7 @@ class RedCap:
 
         counts = []
         for key in expanded_keys:
-            counts.append(self._pretty_counts(key, numeric=numeric, restriction=restriction))
+            counts.append(self._pretty_counts(key, numeric=numeric, restriction=restriction, set_missing_na=set_missing_na))
         counts = pd.concat(counts, axis=1)
 
         if question_category != 'text':
@@ -290,9 +292,15 @@ class RedCap:
             if (counts.shape[0] < 5 and counts.shape[1] > 5 and not numeric):
                 counts = counts.T
 
+        # PI's only want to see these counts if they exist.
+        empty = (counts[counts.index.isin(
+            ['Refused', 'Not Applicable', 'Don\'t Know', 'Missing'])] == '0 (0.00%)').all(axis=1)
+        remove = empty.index.to_list()
+        if len(remove) > 0:
+            counts.drop(index=remove, inplace=True)
         return counts
 
-    def comp(self, strat, columns, restriction=None, set_missing_na=False):
+    def comp(self, strat, columns, restriction=None, set_missing_na=False, mcnemar_test=False):
         if self.meta.loc[strat]['question_category'] != 'categorical':
             raise Exception('Stratification must be categorical.')
 
@@ -319,7 +327,7 @@ class RedCap:
                     j] = f"{self.meta.loc[j].get('question_number')} - {j}: {self.meta.loc[j].get('description')}"
                 if j != strat:
                     new_columns.append(j)
-        f = freqs(df, new_columns, strat=strat, labels=classes)
+        f = freqs(df, new_columns, strat=strat, labels=classes, mcnemar_test=mcnemar_test)
         f.index = f.index.set_levels([pd.Index([new_var_names.get(x) for x in level])
                                       if i == 0 else level
                                       for i, level in enumerate(f.index.levels)])
@@ -419,6 +427,44 @@ class RedCap:
         self.meta.at[array.name, 'name'] = array.name
         return self.df[array.name]
 
+    def create_classes(self, varname, classes):
+        meta = self.meta.loc[varname]
+        qtype = meta['question_type']
+        question_table = meta['question_table']
+        values = [v['value'] for v in question_table]
+        dup_values = [str(key) for key in classes.keys() if str(key) in values]
+        first_in_q_table = question_table[0]
+
+        if len(dup_values) > 0:
+            raise Exception(f'Duplicate values found: {dup_values}')
+        for key, value in classes.items():
+            new_rec = {'value': str(key), 'description': value}
+
+            if qtype == 'checkbox':
+                vname = first_in_q_table['variable_name']
+                new_rec['variable_name'] = f'{varname}___{key}'
+                self.df[f'{varname}___{key}'] = '0'
+                self.df.loc[self.df[vname].isna(), f'{varname}___{key}'] = np.nan
+                self.meta.loc[f'{varname}___{key}'] = self.meta.loc[vname]
+                self.meta.loc[f'{varname}___{key}', 'description'] = value
+
+            question_table.append(new_rec)
+        self.meta.at[varname, 'question_table'] = question_table
+
+    def distribute_other(self, varname, text_vars, distribution=None, ignore=None):
+        if distribution is None:
+            return
+        qtype = self.meta.loc[varname, 'question_type']
+        if qtype == 'checkbox':
+            for key, value in distribution.items():
+                values_lower = [v.strip().lower() for v in value]
+                self.df.loc[self.df[text_vars].str.strip().str.lower().isin(values_lower), f'{varname}___{key}'] = '1'
+        elif qtype == 'categorical':
+            for key, value in distribution.items():
+                values_lower = [v.strip().lower() for v in value]
+                self.df.loc[self.df[text_vars].str.strip().str.lower().isin(values_lower), varname] = str(key)
+        else:
+            raise Exception('Variable must be checkbox or categorical.')
 
 class R2R(RedCap):
     def __init__(self, df_raw, meta_dict):
@@ -451,12 +497,12 @@ class R2R(RedCap):
                               ~self.meta['checkbox'].astype(bool) &
                               (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
 
-    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None):
+    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None, set_missing_na=False):
         counts = []
         if isinstance(keys, str):
             keys = [keys]
         for key in keys:
             if re.match(r'^.*?_12m[_\d]*?$', key):
                 restriction &= (self.df['nature_of_study_completion___11'] == '1')
-            counts.append(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=restriction))
+            counts.append(pd.DataFrame(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=restriction, set_missing_na=set_missing_na)))
         return pd.concat(counts, axis=1)

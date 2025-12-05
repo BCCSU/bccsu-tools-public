@@ -3,23 +3,27 @@ import numpy as np
 from scipy.stats import chi2_contingency, fisher_exact
 from scipy.stats import ttest_ind, levene
 
-def assoc_test_auto(x, y):
+def assoc_test_auto(x, y, mcnemar_test=False):
     """
     Decide between Fisher's exact (2x2 with small expected) and chi-square otherwise.
+    Optionally, for paired 2x2 data, use McNemar's test on off-diagonal counts (b and c).
     Returns NaN if a category total is zero (row/column sum == 0).
 
     Parameters
     ----------
     x, y : array-like (categorical)
+    mcnemar_test : bool, default False
+        If True and the observed table is 2x2, perform McNemar's test
+        (with continuity correction if b+c >= 25; exact binomial otherwise).
 
     Returns
     -------
     dict with keys:
-      - test: 'fisher' or 'chi2' (or None if NaN)
-      - stat: test statistic (odds ratio for fisher; chi2 for chi-square)
+      - test: 'fisher', 'chi2', or 'mcnemar' (or None if NaN)
+      - stat: test statistic (odds ratio for fisher; chi2 for chi-square; chi2 for McNemar asymptotic, or None for exact)
       - p_value: p-value (np.nan if not estimable)
-      - dof: degrees of freedom (chi-square only)
-      - expected: expected counts (chi-square only)
+      - dof: degrees of freedom (chi-square only; 1 for McNemar asymptotic)
+      - expected: expected counts (chi-square only; None for fisher/mcnemar)
       - observed: observed contingency table (numpy array)
       - odds_ratio: for 2x2; NaN if any cell is zero
     """
@@ -46,10 +50,54 @@ def assoc_test_auto(x, y):
     if r == 2 and c == 2:
         a, b, c2, d = observed.ravel()
 
-        # Odds ratio is undefined if any cell is zero -> NaN per your requirement
+        # Odds ratio is undefined if any cell is zero -> NaN
         odds_ratio = np.nan if 0 in (a, b, c2, d) else (a * d) / (b * c2)
 
-        # Use Fisher if any expected cell < 5, else chi-square
+        if mcnemar_test:
+            # McNemar's test on discordant pairs b and c
+            b_disc = float(b)
+            c_disc = float(c2)
+            n_disc = b_disc + c_disc
+
+            if n_disc == 0:
+                # No discordant pairs -> p=1, stat=0, dof=1
+                return {"test": "mcnemar", "stat": 0.0, "p_value": 1.0,
+                        "dof": 1, "expected": None, "observed": observed,
+                        "odds_ratio": odds_ratio}
+
+            # Use exact binomial when small n_disc; continuity-corrected chi-square otherwise
+            if n_disc < 25:
+                # Exact binomial test: two-sided p-value
+                # p = 2 * min(P[X<=min(b,c)], P[X>=max(b,c)]) for X~Bin(n_disc, 0.5), clipped at 1
+                from math import comb
+                k_low = int(min(b_disc, c_disc))
+                k_high = int(max(b_disc, c_disc))
+                n = int(n_disc)
+
+                # CDF up to k_low
+                cdf_low = sum(comb(n, k) for k in range(0, k_low + 1)) / (2**n)
+                # SF from k_high
+                sf_high = sum(comb(n, k) for k in range(k_high, n + 1)) / (2**n)
+
+                p_exact = 2 * min(cdf_low, sf_high)
+                p_exact = float(min(1.0, p_exact))
+                # No asymptotic statistic for exact; set stat=None, dof=None
+                return {"test": "mcnemar", "stat": None, "p_value": p_exact,
+                        "dof": None, "expected": None, "observed": observed,
+                        "odds_ratio": odds_ratio}
+            else:
+                # Asymptotic with continuity correction:
+                # chi2 = (|b - c| - 1)^2 / (b + c), df=1
+                num = abs(b_disc - c_disc) - 1.0
+                chi2_mc = (num * num) / n_disc
+                # p-value from chi-square(1)
+                from scipy.stats import chi2 as chi2_dist
+                p_mc = float(chi2_dist.sf(chi2_mc, df=1))
+                return {"test": "mcnemar", "stat": float(chi2_mc), "p_value": p_mc,
+                        "dof": 1, "expected": None, "observed": observed,
+                        "odds_ratio": odds_ratio}
+
+        # If not McNemar: Use Fisher if any expected cell < 5, else chi-square
         if (expected < 5).any():
             odds, p = fisher_exact(observed, alternative="two-sided")
             return {"test": "fisher", "stat": odds, "p_value": p,
@@ -64,7 +112,6 @@ def assoc_test_auto(x, y):
     return {"test": "chi2", "stat": chi2, "p_value": p_chi2,
             "dof": dof, "expected": expected, "observed": observed,
             "odds_ratio": np.nan}
-
 
 def t_test_auto(x, group, alternative="two-sided", use_levene=True):
     """
@@ -347,7 +394,7 @@ def iqr_strat(df, strat, cols):
     return out
 
 
-def freqs(df, cols, strat=None, labels=None):
+def freqs(df, cols, strat=None, labels=None, mcnemar_test=False):
     # get order
     # split variables cat and cont
 
@@ -373,7 +420,7 @@ def freqs(df, cols, strat=None, labels=None):
             strat_tables.append(cat_strat)
 
         for c in cat_vars:
-            result = assoc_test_auto(df[c], df[strat])
+            result = assoc_test_auto(df[c], df[strat], mcnemar_test=mcnemar_test)
             tests.append({'level_0': c, 'P Value': result['p_value'],
                            'Test Type': result['test']})
     else:

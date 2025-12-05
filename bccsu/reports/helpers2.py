@@ -6,7 +6,13 @@ from bccsu.reports.excel_creator import add_note, write_table, set_page_title, a
 class TableBuilder:
     yesno = {'1': 'Yes', '0': 'No'}
 
-    def __init__(self, data, report):
+    def __init__(self, data, report, make_na=False):
+        """
+
+        :param data:
+        :param report:
+        :param make_na: Sets R,D,N to NA.
+        """
         self.data_dictionary = data.meta
         self.default_df = data.df
         self.anal = data
@@ -16,6 +22,7 @@ class TableBuilder:
         self.latest = None
         self.restriction = None
         self.data_dictionary_question_numbers = self.data_dictionary['adjusted_question_number'].dropna().unique()
+        self.make_na = make_na
 
     def reset_height(self):
         if self.wb.active != self.ws:
@@ -27,23 +34,27 @@ class TableBuilder:
         self.restriction = restriction
         # todo check restriction whenever analyzing
 
-    def compare(self, n1, n2, title=None, mask=None):
+    def compare(self, n1, n2, title=None, mask=None, mcnemar_test=False, write=True):
         if mask is not None:
             restriction = mask & self.restriction
         else:
             restriction = self.restriction
-        c = self.anal.comp(n1, n2, restriction=restriction)
-        self.write_table(c, title=c.title)
+        c = self.anal.comp(n1, n2, restriction=restriction, set_missing_na=self.make_na, mcnemar_test=mcnemar_test)
+        if write:
+            self.write_table(c, title=c.title)
+        return c
 
     def build(self, lookup, num=None, dataset=None, custom=False, description=None, y_pos=0, lookup_contains='',
-              stack=False, transpose=None, collapse=False, title=None, dry_run=False, mask=None, **kwargs):
+              stack=False, transpose=None, collapse=False, title=None, write=True, mask=None, **kwargs):
         self.reset_height()
         if dataset is None:
             dataset = self.default_df
         tables = []
 
         if mask is not None:
-            restriction = mask & self.restriction
+            restriction = mask
+            if self.restriction is not None:
+                restriction &= self.restriction
         else:
             restriction = self.restriction
 
@@ -56,7 +67,7 @@ class TableBuilder:
             cols = self.anal.question_lookup(lookup)
             results = []
             for col in cols:
-                counts = self.anal.pretty_counts(col, restriction=restriction)
+                counts = self.anal.pretty_counts(col, restriction=restriction, set_missing_na=self.make_na)
                 results.append(counts)
                 meta = self.anal.meta.loc[col]
                 if meta['question_category'] == 'checkbox':
@@ -65,13 +76,23 @@ class TableBuilder:
                     title = None
                 if transpose:
                     counts = counts.T
-                self.write_table(counts, title=title)
+                else:
+                    shape = counts.shape
+                    if shape[0] < shape[1]:
+                        counts = counts.T
+                if write:
+                    self.write_table(counts, title=title)
         elif isinstance(lookup, list):
             cols = lookup
-            results = self.anal.pretty_counts(cols, restriction=restriction)
+            results = self.anal.pretty_counts(cols, restriction=restriction, set_missing_na=self.make_na)
             if transpose:
                 results = results.T
-            self.write_table(results, title=title)
+            else:
+                shape = results.shape
+                if shape[0] < shape[1]:
+                    results = results.T
+            if write:
+                self.write_table(results, title=title)
         else:
             raise ValueError('Invalid lookup')
         return results
