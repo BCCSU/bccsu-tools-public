@@ -503,7 +503,25 @@ class R2R(RedCap):
         if isinstance(keys, str):
             keys = [keys]
         for key in keys:
+            mask = restriction
             if re.match(r'^.*?_12m[_\d]*?$', key):
-                restriction &= (self.df['nature_of_study_completion___11'] == '1')
-            counts.append(pd.DataFrame(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=restriction, set_missing_na=set_missing_na)))
-        return pd.concat(counts, axis=1)
+                new_mask = (self.df['nature_of_study_completion___11'] == '1')
+                if mask is not None:
+                    mask = new_mask & mask
+                else:
+                    mask = new_mask
+            counts.append(pd.DataFrame(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=mask, set_missing_na=set_missing_na)))
+        cat = self.meta.loc[keys[0]]['question_category']
+        if cat == 'numeric':
+            return pd.concat(counts, axis=0)
+        else:
+            final_counts = pd.concat(counts, axis=1)
+            rows = final_counts.index.to_list()
+            optional_rows = ['Refused', 'Not Applicable', 'Don\'t Know', 'Missing', 'Total']
+            new_order = [r for r in rows if r not in optional_rows]
+            for i in optional_rows:
+                if i in rows:
+                    new_order.append(i)
+            final_counts = final_counts.loc[new_order]
+            final_counts.fillna('0 (0.00%)', inplace=True)
+            return final_counts
