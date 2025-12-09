@@ -295,6 +295,7 @@ class RedCap:
         # PI's only want to see these counts if they exist.
         empty = (counts[counts.index.isin(
             ['Refused', 'Not Applicable', 'Don\'t Know', 'Missing'])] == '0 (0.00%)').all(axis=1)
+        empty = empty[empty]
         remove = empty.index.to_list()
         if len(remove) > 0:
             counts.drop(index=remove, inplace=True)
