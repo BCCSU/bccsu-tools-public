@@ -458,14 +458,33 @@ class RedCap:
     @staticmethod
     def clean_text(item):
         if isinstance(item, str):
-            return item.lower().strip().replace('"', "'")
+            return item.lower().strip().replace('"', "").replace("'", "")
         else:
             return item
 
-    def distribute_other(self, varname, text_vars, distribution=None, ignore=None):
+    def distribute_other(self, varname, text_vars, distribution=None, ignore=None, clean=True):
+        """
+        99.9% of the time, we will want clean=True. I can't think of why we wouldn't but I left the option just in case.
+        """
         if distribution is None:
             return
         qtype = self.meta.loc[varname, 'question_type']
+
+        if clean:
+            distribution_clean = {}
+            if distribution:
+                for key, item in distribution.items():
+                    if key not in distribution_clean.keys():
+                        distribution_clean[key] = []
+                    for sub_item in item:
+                        distribution_clean[key].append(self.clean_text(sub_item))
+            distribution = distribution_clean
+
+            text_vars = self.df[text_vars].map(self.clean_text)
+            if ignore:
+                ignore = [self.clean_text(item) for item in ignore]
+        else:
+            text_vars = self.df[text_vars]
 
         logged_items = {}
         if distribution:
@@ -487,7 +506,7 @@ class RedCap:
                 else:
                     logged_items[item]['category'] = f'{logged_items[item]["category"]}, Ignore'
 
-        unhandled = self.df[~self.df[text_vars].isin(list(logged_items.keys()))][text_vars].dropna()
+        unhandled = text_vars[~text_vars.isin(list(logged_items.keys()))].dropna()
 
         for item in unhandled:
             logged_items[item] = {'text_value': item, 'category': '', 'explicitly_defined': "No"}
@@ -520,11 +539,11 @@ class RedCap:
         if qtype == 'checkbox':
             for key, value in distribution.items():
                 values_lower = [v.strip().lower() for v in value]
-                self.df.loc[self.df[text_vars].apply(self.clean_text).isin(values_lower), f'{varname}___{key}'] = '1'
+                self.df.loc[text_vars.isin(values_lower), f'{varname}___{key}'] = '1'
         elif qtype == 'categorical':
             for key, value in distribution.items():
                 values_lower = [v.strip().lower() for v in value]
-                self.df.loc[self.df[text_vars].str.strip().str.lower().isin(values_lower), varname] = str(key)
+                self.df.loc[text_vars.isin(values_lower), varname] = str(key)
         else:
             raise Exception('Variable must be checkbox or categorical.')
 
