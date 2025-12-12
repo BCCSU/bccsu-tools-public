@@ -452,6 +452,12 @@ class RedCap:
             question_table.append(new_rec)
         self.meta.at[varname, 'question_table'] = question_table
 
+    @staticmethod
+    def clean_text(item):
+        return item.str.lower.strip().replace('"', "'")
+
+
+
     def distribute_other(self, varname, text_vars, distribution=None, ignore=None):
         if distribution is None:
             return
@@ -459,7 +465,11 @@ class RedCap:
         if qtype == 'checkbox':
             for key, value in distribution.items():
                 values_lower = [v.strip().lower() for v in value]
-                self.df.loc[self.df[text_vars].str.strip().str.lower().isin(values_lower), f'{varname}___{key}'] = '1'
+                (self.df.loc[self.df[text_vars].str.strip()
+                .str.lower()
+                .replace('"', '')
+                .replace("'", '')
+                .isin(values_lower), f'{varname}___{key}']) = '1'
         elif qtype == 'categorical':
             for key, value in distribution.items():
                 values_lower = [v.strip().lower() for v in value]
