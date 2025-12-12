@@ -502,7 +502,7 @@ class RedCap:
             method = 'a'
 
         with open('recategorization_log.csv', method) as f:
-            f.write(f'{varname}\n')
+            f.write(f'{text_vars} -> {varname}\n')
 
         pd.DataFrame(list(logged_items.values())).to_csv(
             'recategorization_log.csv',
