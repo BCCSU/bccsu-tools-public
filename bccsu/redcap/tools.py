@@ -1,3 +1,4 @@
+import logging
 import re
 
 import numpy as np
@@ -11,6 +12,7 @@ class RedCap:
         self.meta = meta
         self.df = df.reset_index(drop=True)
         self.restriction = None
+        self.text_recategorization_started = False
 
     def create_restriction_mask(self, key):
         s = self.meta.loc[key]['restrictions']
@@ -274,7 +276,8 @@ class RedCap:
 
         counts = []
         for key in expanded_keys:
-            counts.append(self._pretty_counts(key, numeric=numeric, restriction=restriction, set_missing_na=set_missing_na))
+            counts.append(
+                self._pretty_counts(key, numeric=numeric, restriction=restriction, set_missing_na=set_missing_na))
         counts = pd.concat(counts, axis=1)
 
         if question_category != 'text':
@@ -454,28 +457,77 @@ class RedCap:
 
     @staticmethod
     def clean_text(item):
-        return item.str.lower.strip().replace('"', "'")
-
-
+        if isinstance(item, str):
+            return item.lower().strip().replace('"', "'")
+        else:
+            return item
 
     def distribute_other(self, varname, text_vars, distribution=None, ignore=None):
         if distribution is None:
             return
         qtype = self.meta.loc[varname, 'question_type']
+
+        logged_items = {}
+        if distribution:
+            for key, item in distribution.items():
+                for sub_item in item:
+                    if sub_item not in logged_items.keys():
+                        logged_items[sub_item] = {'text_value': sub_item,
+                                                  'category': key,
+                                                  'explicitly_defined': 'Yes'}
+                    else:
+                        logged_items[sub_item]['category'] = f'{logged_items[sub_item]["category"]}, {key}'
+
+        if ignore:
+            for item in ignore:
+                if item not in logged_items.keys():
+                    logged_items[item] = {'text_value': item,
+                                          'category': 'Ignore',
+                                          'explicitly_defined': 'Yes'}
+                else:
+                    logged_items[item]['category'] = f'{logged_items[item]["category"]}, Ignore'
+
+        unhandled = self.df[~self.df[text_vars].isin(list(logged_items.keys()))][text_vars].dropna()
+
+        for item in unhandled:
+            logged_items[item] = {'text_value': item, 'category': '', 'explicitly_defined': "No"}
+
+        if not self.text_recategorization_started:
+            """
+            Make a csv tracking all recategorizations, if file exists, overwrite and create new
+            """
+            self.text_recategorization_started = True
+            method = 'w'
+        else:
+            method = 'a'
+
+        with open('recategorization_log.csv', method) as f:
+            f.write(f'{varname}\n')
+
+        pd.DataFrame(list(logged_items.values())).to_csv(
+            'recategorization_log.csv',
+            mode="a",
+            index=False,
+        )
+
+        with open('recategorization_log.csv', 'a') as f:
+            f.write('\n')
+
+        if unhandled.shape[0] > 0:
+            logging.warning(f'Unhandled items found: \n{unhandled.to_list()}')
+            # raise Exception(f'Unhandled items found: \n{unhandled.to_list()}')
+
         if qtype == 'checkbox':
             for key, value in distribution.items():
                 values_lower = [v.strip().lower() for v in value]
-                (self.df.loc[self.df[text_vars].str.strip()
-                .str.lower()
-                .replace('"', '')
-                .replace("'", '')
-                .isin(values_lower), f'{varname}___{key}']) = '1'
+                self.df.loc[self.df[text_vars].apply(self.clean_text).isin(values_lower), f'{varname}___{key}'] = '1'
         elif qtype == 'categorical':
             for key, value in distribution.items():
                 values_lower = [v.strip().lower() for v in value]
                 self.df.loc[self.df[text_vars].str.strip().str.lower().isin(values_lower), varname] = str(key)
         else:
             raise Exception('Variable must be checkbox or categorical.')
+
 
 class R2R(RedCap):
     def __init__(self, df_raw, meta_dict):
@@ -520,7 +572,8 @@ class R2R(RedCap):
                     mask = new_mask & mask
                 else:
                     mask = new_mask
-            counts.append(pd.DataFrame(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=mask, set_missing_na=set_missing_na)))
+            counts.append(pd.DataFrame(super().pretty_counts(key, dropna=dropna, numeric=numeric, restriction=mask,
+                                                             set_missing_na=set_missing_na)))
         cat = self.meta.loc[keys[0]]['question_category']
         if cat == 'numeric':
             return pd.concat(counts, axis=0)
