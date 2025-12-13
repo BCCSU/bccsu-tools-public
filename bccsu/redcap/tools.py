@@ -585,7 +585,12 @@ class R2R(RedCap):
             keys = [keys]
         for key in keys:
             mask = restriction
-            if re.match(r'^.*?_12m[_\d]*?$', key):
+            events = self.meta.loc[key, 'event']
+            fu = False
+            if isinstance(events, list):
+                event = self.meta.loc[key, 'event'][0]
+                fu = event.startswith('12_months')
+            if fu:
                 new_mask = (self.df['nature_of_study_completion___11'] == '1')
                 if mask is not None:
                     mask = new_mask & mask
