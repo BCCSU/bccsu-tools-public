@@ -52,7 +52,7 @@ class TableBuilder:
         tables = []
 
         if mask is not None:
-            restriction = mask
+            restriction = mask.copy()
             if self.restriction is not None:
                 restriction &= self.restriction
         else:

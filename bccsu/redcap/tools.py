@@ -415,6 +415,7 @@ class RedCap:
             raise Exception('Stratification must be categorical or checkbox.')
 
     def create(self, array, **kwargs):
+        # todo add a notes section for each variable.
         if array.name in self.df.columns:
             raise Exception('Name already exists.')
         # todo We need a number of checks here.
@@ -468,7 +469,7 @@ class RedCap:
         """
         if distribution is None:
             return
-        qtype = self.meta.loc[varname, 'question_type']
+        qtype = self.meta.loc[varname, 'question_category']
 
         if clean:
             distribution_clean = {}
@@ -521,7 +522,7 @@ class RedCap:
             method = 'a'
 
         with open('recategorization_log.csv', method) as f:
-            f.write(f'{text_vars} -> {varname}\n')
+            f.write(f'{varname}\n')
 
         pd.DataFrame(list(logged_items.values())).to_csv(
             'recategorization_log.csv',
@@ -533,7 +534,7 @@ class RedCap:
             f.write('\n')
 
         if unhandled.shape[0] > 0:
-            logging.warning(f'Unhandled items found: \n{unhandled.to_list()}')
+            logging.warning(f'Unhandled items found in "{varname}": \n{unhandled.to_list()}')
             # raise Exception(f'Unhandled items found: \n{unhandled.to_list()}')
 
         if qtype == 'checkbox':
