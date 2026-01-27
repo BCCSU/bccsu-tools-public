@@ -376,6 +376,7 @@ class RedCap:
             new_qt = []
             template_array = pd.Series([None] * self.df.shape[0], dtype="object")
             mask = self.df[[f"{key}___{q['value']}" for q in qt]].isin(['0', '1']).all(axis=1)
+            template_array.index = mask.index
             template_array[mask] = '0'
             desc = []
             for i, (dict_key, value) in enumerate(collapse_dict.items()):
