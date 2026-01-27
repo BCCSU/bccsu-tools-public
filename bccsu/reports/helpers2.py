@@ -34,6 +34,9 @@ class TableBuilder:
         self.restriction = restriction
         # todo check restriction whenever analyzing
 
+    def clear_restriction(self):
+        self.restriction = None
+
     def compare(self, n1, n2, title=None, mask=None, mcnemar_test=False, write=True):
         if mask is not None:
             restriction = mask & self.restriction
