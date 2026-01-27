@@ -556,6 +556,14 @@ class RedCap:
         else:
             raise Exception('Variable must be checkbox or categorical.')
 
+    def question_lookup(self, qn):
+        if qn in self.meta.index:
+            return [qn]
+        else:
+            return self.meta[((self.meta['question_number'] == qn) &
+                              ~self.meta['checkbox'].astype(bool) &
+                              (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
+
 
 class R2R(RedCap):
     def __init__(self, df_raw, meta_dict):
@@ -579,14 +587,6 @@ class R2R(RedCap):
                     raise Exception(f'Key not found: {key}')
 
         return super().__getitem__(keys)
-
-    def question_lookup(self, qn):
-        if qn in self.meta.index:
-            return [qn]
-        else:
-            return self.meta[((self.meta['question_number'] == qn) &
-                              ~self.meta['checkbox'].astype(bool) &
-                              (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
 
     def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None, set_missing_na=False):
         counts = []
