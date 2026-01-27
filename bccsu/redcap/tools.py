@@ -416,12 +416,19 @@ class RedCap:
             raise Exception('Stratification must be categorical or checkbox.')
 
     def create(self, array, **kwargs):
-        # todo add a notes section for each variable.
-        if array.name in self.df.columns:
-            raise Exception('Name already exists.')
-        # todo We need a number of checks here.
         if kwargs.get('name') is None:
             kwargs['name'] = array.name
+        else:
+            try:
+                array.name = kwargs['name']
+            except AttributeError:
+                array = pd.array(array)
+                array.name = kwargs['name']
+        # todo add a notes section for each variable.
+        if kwargs['name'] in self.df.columns:
+            raise Exception('Name already exists.')
+        # todo We need a number of checks here.
+
         kwargs['question_number'] = 'Derived'
         if isinstance(kwargs.get('question_table'), dict):
             kwargs['question_table'] = [{'value': str(key), 'description': value}
