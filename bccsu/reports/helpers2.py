@@ -71,7 +71,7 @@ class TableBuilder:
                 results.append(counts)
                 meta = self.anal.meta.loc[col]
                 if meta['question_category'] == 'checkbox':
-                    title = f'{meta['question_number']} - {col}: {meta["description"]}'
+                    title = f"{meta['question_number']} - {col}: {meta['description']}"
                 else:
                     title = None
                 if transpose:

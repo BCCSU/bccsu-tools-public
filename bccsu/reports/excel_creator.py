@@ -357,7 +357,7 @@ class MacroRunner:
 class ReportCreator:
     def __init__(self, filename=None, request_path=None, template=None, *args, **kwargs):
         if filename is None:
-            filename = Path('reports') / f'{Path.cwd().name}_{datetime.today().strftime('%d%b%Y').upper()}.xlsx'
+            filename = Path('reports') / f'{Path.cwd().name}_{datetime.today().strftime("%d%b%Y").upper()}.xlsx'
         self.filename = Path(filename)
         self.request_path = None
         if request_path is not None:
