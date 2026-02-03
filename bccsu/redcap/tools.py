@@ -20,7 +20,16 @@ class RedCap:
         if pd.isna(s):
             return np.ones(self.df.shape[0]).astype(bool)
 
-        s = s.replace('\n\t\t\t\t', ' ')
+        # Remove commented lines
+        executing_lines = []
+        for line in s.split('\n'):
+            line = line.strip()
+            if not line.startswith('#'):
+                executing_lines.append(line)
+        s = '\n'.join(executing_lines)
+
+        s = s.replace('\t\t\t\t', '')
+        s = s.replace('\n', ' ')
 
         # Temporary. Removes multipl [] in restrictions and leaves last most one.
         # [y2_qi_staff_survey_arm_6][role_y2]='6' -> [role_y2]='6'
@@ -121,6 +130,7 @@ class RedCap:
 
     def _clean_date(self, key, mask):
         array = self.df[key].copy()
+        array[array.isin(['R', 'D', 'N'])] = np.nan
         array = pd.to_datetime(array)
         array[mask] = np.nan
         return array

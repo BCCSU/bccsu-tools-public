@@ -84,7 +84,7 @@ class TableBuilder:
                     if shape[0] < shape[1]:
                         counts = counts.T
                 if write:
-                    self.write_table(counts, title=title)
+                    self.write_table(counts, title=title, y_pos=y_pos)
         elif isinstance(lookup, list):
             cols = lookup
             results = self.anal.pretty_counts(cols, restriction=restriction, set_missing_na=self.make_na)
@@ -95,7 +95,7 @@ class TableBuilder:
                 if shape[0] < shape[1]:
                     results = results.T
             if write:
-                self.write_table(results, title=title)
+                self.write_table(results, title=title, y_pos=y_pos)
         else:
             raise ValueError('Invalid lookup')
         return results
@@ -110,13 +110,20 @@ class TableBuilder:
 
     def add_note(self, note):
         self.reset_height()
-        add_note(self.ws, note, [self.height + 2, 0], [0, 5])
-        self.height += 1
+        note = note.strip()
+        lines = note.split('\n')
+        for line in lines:
+            add_note(self.ws, line, [self.height + 2, 0])
+            self.height += 1
 
     def add_title(self, title):
         self.reset_height()
-        add_title(self.ws, title, [self.height + 3, 0])
-        self.height += 2
+        title = title.strip()
+        lines = title.split('\n')
+        for line in lines:
+            add_title(self.ws, line, [self.height + 2, 0])
+            self.height += 1
+        self.height += 1
 
     def get_desc(self, variable):
         desc = self.data_dictionary[self.data_dictionary['name'] == variable]['description'].values[0]
