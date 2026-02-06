@@ -175,8 +175,8 @@ Question Table:""")
                         break
         return [s['description'] for s in sorted_data] + ['D', 'N', 'R', 'Missing', 'Total']
 
-    def image(self, path):
-        insert_image(self.ws, path, [self.height + 2, 0])
+    def image(self, path, x_pos=0):
+        insert_image(self.ws, path, [self.height + 2, x_pos])
 
     @staticmethod
     def sort_index(table, order):
