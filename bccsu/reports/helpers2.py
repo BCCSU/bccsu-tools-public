@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from bccsu.reports.excel_creator import add_note, write_table, set_page_title, add_title
+from bccsu.reports.excel_creator import add_note, write_table, set_page_title, add_title, insert_image
 
 class TableBuilder:
     yesno = {'1': 'Yes', '0': 'No'}
@@ -37,7 +37,7 @@ class TableBuilder:
     def clear_restriction(self):
         self.restriction = None
 
-    def compare(self, n1, n2, title=None, mask=None, mcnemar_test=False, write=True):
+    def compare(self, n1, n2, mask=None, mcnemar_test=False, write=True):
         if mask is not None:
             restriction = mask & self.restriction
         else:
@@ -174,6 +174,9 @@ Question Table:""")
                         i['description'] = value
                         break
         return [s['description'] for s in sorted_data] + ['D', 'N', 'R', 'Missing', 'Total']
+
+    def image(self, path):
+        insert_image(self.ws, path, [self.height + 2, 0])
 
     @staticmethod
     def sort_index(table, order):
