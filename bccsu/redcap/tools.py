@@ -90,7 +90,7 @@ class RedCap:
             classes.update({'R': 'Refused', 'N': 'Not Applicable', 'D': 'Don\'t Know'})
         array = pd.Series(pd.Categorical(array.map(classes),
                                          categories=list(classes.values()),
-                                         ordered=True), name=key)
+                                         ordered=True), name=key, index=array.index)
         return array
 
     def _clean_numeric(self, key, mask):
@@ -265,6 +265,15 @@ class RedCap:
                         count = (raw_data == item).sum()
                         if count > 0:
                             iqr_data[item] = (raw_data == item).sum()
+
+                # iqr_data.loc[:, ['Mean', 'std']] = iqr_data.loc[:, ['Mean', 'std']].round(2)
+                # percentiles = ['Median', '25 quartile', '75 quartile']
+                # iqr_data.loc[:, percentiles] = iqr_data.loc[:, percentiles].round(0)
+                # for c in percentiles:
+                #     n_at_percentile = (self.df[keys].round(0) == iqr_data.loc[:, c].values[0]).sum().values[0]
+                #     iqr_data.loc[:, c] = f"{iqr_data.loc[:, c].values[0]:.0f} ({n_at_percentile})"
+                # iqr_data.rename(columns={c: f"{c} (N)" for c in percentiles}, inplace=True)
+
                 iqrs.append(iqr_data)
             return pd.concat(iqrs)
 
@@ -377,6 +386,7 @@ class RedCap:
             self.meta.at[new_name, 'question_table'] = new_qt
             self.meta.at[new_name, 'question_category'] = 'categorical'
             self.meta.at[new_name, 'question_number'] = 'Derived'
+            self.meta.at[new_name, 'source_variables'] = [key]
             return self.df[new_name]
 
         elif question_category == 'checkbox':
@@ -407,6 +417,7 @@ class RedCap:
                 self.meta.at[new_name_cat, 'question_table'] = yesno
                 self.meta.at[new_name_cat, 'question_category'] = 'categorical'
                 self.meta.at[new_name_cat, 'question_number'] = 'Derived'
+                self.meta.at[new_name_cat, 'source_variables'] = [key]
                 self.df.loc[:, new_name_cat] = array
                 desc.append(description)
 
@@ -416,6 +427,7 @@ class RedCap:
             self.meta.at[new_name, 'question_table'] = new_qt
             self.meta.at[new_name, 'question_category'] = 'checkbox'
             self.meta.at[new_name, 'question_number'] = 'Derived'
+            self.meta.at[new_name, 'source_variables'] = [key]
 
             for value in ['n', 'd', 'r']:
                 self.df[f'{new_name}___{value}'] = self.df[f'{key}___{value}']
@@ -425,7 +437,7 @@ class RedCap:
         else:
             raise Exception('Stratification must be categorical or checkbox.')
 
-    def create(self, array, **kwargs):
+    def create(self, array, source_variables=None, **kwargs):
         if kwargs.get('name') is None:
             kwargs['name'] = array.name
         else:
@@ -440,6 +452,7 @@ class RedCap:
         # todo We need a number of checks here.
 
         kwargs['question_number'] = 'Derived'
+        kwargs['source_variables'] = source_variables or []
         if isinstance(kwargs.get('question_table'), dict):
             kwargs['question_table'] = [{'value': str(key), 'description': value}
                                         for key, value in kwargs['question_table'].items()]
@@ -573,6 +586,69 @@ class RedCap:
             return self.meta[((self.meta['question_number'] == qn) &
                               ~self.meta['checkbox'].astype(bool) &
                               (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
+
+    def search_variables(self, query, limit=20):
+        """Search variable names and descriptions for a query string (case-insensitive)."""
+        q = query.lower()
+        mask = (self.meta['name'].str.lower().str.contains(q, na=False) |
+                self.meta['description'].str.lower().str.contains(q, na=False))
+        result = self.meta.loc[mask, ['name', 'description', 'question_category', 'instrument']].head(limit)
+        return result
+
+    def describe(self, key):
+        """Return a structured dict with all metadata and basic stats for a variable."""
+        row = self.meta.loc[key]
+        info = {
+            'name': key,
+            'description': row.get('description'),
+            'question_category': row.get('question_category'),
+            'question_type': row.get('question_type'),
+            'instrument': row.get('instrument'),
+            'event': row.get('event'),
+            'restrictions': row.get('restrictions'),
+            'section': row.get('section'),
+        }
+        if row.get('question_category') in ('categorical', 'checkbox'):
+            qt = row.get('question_table')
+            if qt and isinstance(qt, list):
+                info['categories'] = {item['value']: item.get('description', '') for item in qt}
+        if row.get('question_category') == 'checkbox':
+            info['sub_variables'] = self.get_checkbox_variables(key)
+        if key in self.df.columns:
+            col = self.df[key]
+            info['n_rows'] = len(col)
+            info['n_missing'] = col.isna().sum() + col.isin(['', None]).sum()
+            info['sample_values'] = col.dropna().head(5).tolist()
+        return info
+
+    def list_variables(self, instrument=None, category=None, event=None):
+        """List available variables with optional filtering by instrument, category, or event."""
+        mask = pd.Series(True, index=self.meta.index)
+        if instrument:
+            mask &= self.meta['instrument'].str.lower().str.contains(instrument.lower(), na=False)
+        if category:
+            mask &= self.meta['question_category'] == category
+        if event:
+            mask &= self.meta['event'].apply(
+                lambda x: event.lower() in [e.lower() for e in x] if isinstance(x, list) else False)
+        return self.meta.loc[mask, ['name', 'description', 'question_category', 'instrument']]
+
+    def summary(self):
+        """Return a high-level overview of the dataset."""
+        cat_counts = self.meta['question_category'].value_counts().to_dict()
+        instruments = self.meta['instrument'].dropna().unique().tolist()
+        events = []
+        for e in self.meta['event'].dropna():
+            if isinstance(e, list):
+                events.extend(e)
+        events = list(set(events))
+        return {
+            'n_rows': self.df.shape[0],
+            'n_variables': len(self.meta),
+            'instruments': instruments,
+            'category_counts': cat_counts,
+            'events': sorted(events),
+        }
 
 
 class R2R(RedCap):

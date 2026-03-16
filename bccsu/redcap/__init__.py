@@ -200,4 +200,5 @@ def parse_redcap_data_dict(path):
     if len(unhandled_sub_questions) > 0:
         raise Exception(f'Unhandled question subtypes: {set(sub_question_types).difference(sub_handled_question_types)}')
     meta['notes'] = pd.NA
+    meta['source_variables'] = None
     return meta
