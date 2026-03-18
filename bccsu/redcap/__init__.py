@@ -1,10 +1,6 @@
 from lxml import etree
-import pandas as pd
-import re
-
-import pandas as pd
-from lxml import etree
 import numpy as np
+import pandas as pd
 
 def parse_redcap_data_dict(path):
     """

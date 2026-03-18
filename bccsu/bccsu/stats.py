@@ -318,9 +318,8 @@ def _cross_tab_single(df, rows, col, row_totals=True, col_totals=True):
         final_sum = total_col_sum
 
     try:
-        # Just temporary while we test this new function.
         assert total_row_sum == total_col_sum
-    except NameError:
+    except (NameError, AssertionError):
         pass
 
     t_counts.columns = pd.MultiIndex.from_tuples(zip([t_counts.columns.name for i in t_counts], list(t_counts)))

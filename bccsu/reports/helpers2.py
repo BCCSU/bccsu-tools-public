@@ -1,10 +1,8 @@
-import numpy as np
 import pandas as pd
 
-from bccsu.reports.excel_creator import add_note, write_table, set_page_title, add_title, insert_image
+from bccsu.reports.excel_creator import add_note, write_table, add_title, insert_image
 
 class TableBuilder:
-    yesno = {'1': 'Yes', '0': 'No'}
 
     def __init__(self, data, report, make_na=False):
         """
@@ -50,8 +48,7 @@ class TableBuilder:
             self.write_table(c, title=c.title)
         return c
 
-    def build(self, lookup, num=None, dataset=None, custom=False, description=None, y_pos=0, lookup_contains='',
-              stack=False, transpose=None, collapse=False, title=None, write=True, mask=None, **kwargs):
+    def build(self, lookup, dataset=None, y_pos=0, transpose=None, title=None, write=True, mask=None, **kwargs):
         self.reset_height()
         if dataset is None:
             dataset = self.default_df
@@ -65,10 +62,8 @@ class TableBuilder:
             restriction = self.restriction
 
         if isinstance(lookup, pd.core.series.Series):
-            # If raw series is given.
             dataset = lookup.to_frame()
             lookup = lookup.name
-            custom = True
         if isinstance(lookup, str):
             cols = self.anal.question_lookup(lookup)
             results = []

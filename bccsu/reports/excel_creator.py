@@ -1,6 +1,5 @@
 from pathlib import Path
 import openpyxl
-from openpyxl.reader.excel import ExcelReader
 from openpyxl.styles import Alignment
 import win32com.client
 import tempfile
@@ -11,8 +10,6 @@ from openpyxl.utils import get_column_letter
 import pandas as pd
 from openpyxl.styles import numbers
 from datetime import datetime
-from openpyxl import Workbook
-from time import sleep
 import os
 
 Path('logs').mkdir(exist_ok=True)
