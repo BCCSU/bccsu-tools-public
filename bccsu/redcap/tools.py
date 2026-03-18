@@ -669,6 +669,78 @@ class RedCap:
             'events': sorted(events),
         }
 
+    def to_sas_df(self, variables, id_col='participant_id', classes=None):
+        """Prepare a DataFrame for SAS procedures.
+
+        Converts RedCap string-stored data to numeric types suitable for SAS,
+        auto-generates labels and classes dicts from metadata.
+
+        Args:
+            variables: list of variable names (dependent + independent)
+            id_col: subject identifier column name (becomes 'CODE' for SAS)
+            classes: dict of {var: reference_value} overrides. If a categorical
+                     variable is not in this dict, its first category value is
+                     used as the reference.
+
+        Returns:
+            dict with keys:
+                'df': numeric DataFrame with CODE column
+                'labels': {var: {raw_value: description}} for categorical vars
+                'classes': {var: reference_value} for categorical vars
+        """
+        if classes is None:
+            classes = {}
+
+        out_labels = {}
+        out_classes = {}
+        cols = {}
+
+        for var in variables:
+            cat = self.meta.loc[var]['question_category']
+            qt = self.meta.loc[var].get('question_table')
+
+            if cat == 'numeric':
+                arr = self.df[var].copy()
+                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                cols[var] = pd.to_numeric(arr, errors='coerce')
+
+            elif cat in ('categorical', 'checkbox'):
+                arr = self.df[var].copy()
+                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                cols[var] = pd.to_numeric(arr, errors='coerce')
+
+                if qt:
+                    label_map = {}
+                    for entry in qt:
+                        val = entry.get('value', entry.get('variable_name', ''))
+                        label_map[val] = entry['description']
+                    out_labels[var] = label_map
+
+                if var in classes:
+                    out_classes[var] = classes[var]
+                elif qt:
+                    out_classes[var] = qt[0]['value']
+
+            elif cat == 'text':
+                arr = self.df[var].copy()
+                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                cols[var] = pd.to_numeric(arr, errors='coerce')
+
+            else:
+                arr = self.df[var].copy()
+                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                cols[var] = pd.to_numeric(arr, errors='coerce')
+
+        df = pd.DataFrame(cols, index=self.df.index)
+        if id_col in self.df.columns:
+            df['CODE'] = pd.to_numeric(self.df[id_col], errors='coerce')
+
+        return {
+            'df': df,
+            'labels': out_labels,
+            'classes': out_classes,
+        }
+
 
 class R2R(RedCap):
     def __init__(self, df_raw, meta_dict):
