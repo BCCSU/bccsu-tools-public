@@ -687,6 +687,7 @@ class RedCap:
                 'df': numeric DataFrame with CODE column
                 'labels': {var: {raw_value: description}} for categorical vars
                 'classes': {var: reference_value} for categorical vars
+                'variables': resolved variable list (checkbox parents expanded to sub-vars)
         """
         if classes is None:
             classes = {}
@@ -699,12 +700,26 @@ class RedCap:
             cat = self.meta.loc[var]['question_category']
             qt = self.meta.loc[var].get('question_table')
 
+            # Checkbox parent: expand to binary sub-variables
+            if cat == 'checkbox' and qt and 'variable_name' in qt[0]:
+                for entry in qt:
+                    sub_var = entry['variable_name']
+                    arr = self.df[sub_var].copy()
+                    arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                    cols[sub_var] = pd.to_numeric(arr, errors='coerce')
+                    out_labels[sub_var] = {'1': entry['description'], '0': f'Not {entry["description"]}'}
+                    if sub_var in classes:
+                        out_classes[sub_var] = classes[sub_var]
+                    else:
+                        out_classes[sub_var] = '0'
+                continue
+
             if cat == 'numeric':
                 arr = self.df[var].copy()
                 arr[arr.isin(['R', 'N', 'D'])] = np.nan
                 cols[var] = pd.to_numeric(arr, errors='coerce')
 
-            elif cat in ('categorical', 'checkbox'):
+            elif cat == 'categorical':
                 arr = self.df[var].copy()
                 arr[arr.isin(['R', 'N', 'D'])] = np.nan
                 cols[var] = pd.to_numeric(arr, errors='coerce')
@@ -712,19 +727,13 @@ class RedCap:
                 if qt:
                     label_map = {}
                     for entry in qt:
-                        val = entry.get('value', entry.get('variable_name', ''))
-                        label_map[val] = entry['description']
+                        label_map[entry['value']] = entry['description']
                     out_labels[var] = label_map
 
                 if var in classes:
                     out_classes[var] = classes[var]
                 elif qt:
                     out_classes[var] = qt[0]['value']
-
-            elif cat == 'text':
-                arr = self.df[var].copy()
-                arr[arr.isin(['R', 'N', 'D'])] = np.nan
-                cols[var] = pd.to_numeric(arr, errors='coerce')
 
             else:
                 arr = self.df[var].copy()
@@ -735,10 +744,21 @@ class RedCap:
         if id_col in self.df.columns:
             df['CODE'] = pd.to_numeric(self.df[id_col], errors='coerce')
 
+        # Build resolved variable list (checkbox parents replaced with sub-vars)
+        resolved_vars = []
+        for var in variables:
+            cat = self.meta.loc[var]['question_category']
+            qt = self.meta.loc[var].get('question_table')
+            if cat == 'checkbox' and qt and 'variable_name' in qt[0]:
+                resolved_vars.extend(entry['variable_name'] for entry in qt)
+            else:
+                resolved_vars.append(var)
+
         return {
             'df': df,
             'labels': out_labels,
             'classes': out_classes,
+            'variables': resolved_vars,
         }
 
 
