@@ -186,7 +186,7 @@ def parse_redcap_data_dict(path):
               meta['question_sub_type'].isin(numeric_subtypes)), 'question_category'] = 'numeric'
     meta.loc[meta['question_sub_type'].isin(date_subtypes), 'question_category'] = 'date'
 
-    unhandled_mask = ~meta['question_category'].isna()
+    unhandled_mask = meta['question_category'].isna()
     meta_uh = meta.loc[unhandled_mask]
     question_types = set(meta_uh['question_type'].dropna().unique())
     handled_question_types = set(checkbox + categorical + continuous + text + skipped)

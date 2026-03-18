@@ -1,3 +1,4 @@
+import ast
 import logging
 import re
 
@@ -5,6 +6,23 @@ import numpy as np
 import pandas as pd
 
 from bccsu.bccsu.stats import freqs
+
+
+_SAFE_AST_NODES = (
+    ast.Expression, ast.BoolOp, ast.And, ast.Or,
+    ast.Compare, ast.Eq, ast.NotEq, ast.Gt, ast.Lt, ast.GtE, ast.LtE,
+    ast.BinOp, ast.BitAnd, ast.BitOr, ast.UnaryOp, ast.Invert, ast.Not,
+    ast.Attribute, ast.Subscript, ast.Name, ast.Constant,
+    ast.Load,
+)
+
+
+def _validate_restriction_ast(source):
+    """Validate that a restriction expression only contains safe pandas comparison nodes."""
+    tree = ast.parse(source, mode='eval')
+    for node in ast.walk(tree):
+        if not isinstance(node, _SAFE_AST_NODES):
+            raise ValueError(f"Unsafe node in restriction expression: {type(node).__name__}")
 
 
 class RedCap:
@@ -48,12 +66,11 @@ class RedCap:
                 relation = '!='
             elif '>' in m:
                 key, value = m.split('>')
-                relation = ''
+                relation = '>'
             else:
                 raise Exception('Relation not handled yet.')
             key = key.replace('(', '___')
             key = key.replace(')', '')
-            key = key.replace('', '')
             if '"' not in value and "'" not in value:
                 value = f"'{value}'"
             return f'(self.df[\'{key[1:-1]}\'] {relation} {value})'
@@ -65,6 +82,7 @@ class RedCap:
 
         s = s.replace(' AND ', '&')
         s = s.replace(' OR ', '|')
+        _validate_restriction_ast(s)
         return eval(compile(s, '<string>', 'eval'))
 
     def create_missingness_mask(self, key):
@@ -257,9 +275,10 @@ class RedCap:
                     else:
                         raise Exception('Classes need to match.')
                 iqr_data = self._pretty_iqr(key, restriction=restriction)
-                if restriction is None:
-                    restriction = np.ones(self.df.shape[0]).astype(bool)
-                raw_data = self.df.loc[restriction, key]
+                if restriction is not None:
+                    raw_data = self.df.loc[restriction, key]
+                else:
+                    raw_data = self.df[key]
                 if not set_missing_na:
                     for item in ['R', 'N', 'D']:
                         count = (raw_data == item).sum()

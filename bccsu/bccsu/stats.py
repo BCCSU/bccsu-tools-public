@@ -203,11 +203,10 @@ def counts(df, cols=None):
 
     def round_perc(col):
         series = df[col]
-        if len(df[i].unique()) > 3:
-            print(len(df[i].unique()))
-            yes_col = get_iqr(df, i)
+        if len(df[col].unique()) > 3:
+            yes_col = get_iqr(df, col)
             no_col = ''
-            total = df[i].notna().sum()
+            total = df[col].notna().sum()
         else:
             yes_count = (series == 1).sum()
             no_count = (series == 0).sum()

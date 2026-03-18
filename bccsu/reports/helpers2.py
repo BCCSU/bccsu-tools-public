@@ -144,6 +144,9 @@ class TableBuilder:
                     'No Description'))
         return table
 
+    def get_var_names(self, question_number):
+        return self.anal.question_lookup(question_number)
+
     def get_question_info(self, question_number):
         var_names = self.get_var_names(question_number)
         print(f'Question Number: {question_number}')
