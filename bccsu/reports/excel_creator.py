@@ -78,7 +78,7 @@ def get_contiguous_sequences(codes):
         for pos, code in enumerate(col):
             if pos != 0:
                 if previous_code != code or previous_index[pos] != previous_index[pos - 1]:
-                    if pos - start > 1:
+                    if pos - start > 0:
                         sub_groups.append([start, pos - 1])
                     start = pos
             previous_code = code
@@ -426,7 +426,7 @@ class ReportCreator:
             for pos, code in enumerate(col):
                 if pos != 0:
                     if previous_code != code or previous_index[pos] != previous_index[pos - 1]:
-                        if pos - start > 1:
+                        if pos - start > 0:
                             sub_groups.append([start, pos - 1])
                         start = pos
                 previous_code = code
@@ -483,7 +483,12 @@ class ReportCreator:
             table_start_pos[0] += 1
 
         if write_index:
-            df_temp = df.reset_index()
+            try:
+                df_temp = df.reset_index()
+            except ValueError:
+                df_temp = df.copy()
+                df_temp.index.name = ''
+                df_temp.reset_index(inplace=True)
         else:
             df_temp = df
 
