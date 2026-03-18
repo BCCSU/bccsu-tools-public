@@ -39,7 +39,10 @@ class TableBuilder:
 
     def compare(self, n1, n2, mask=None, mcnemar_test=False, write=True):
         if mask is not None:
-            restriction = mask & self.restriction
+            if self.restriction is not None:
+                restriction = mask & self.restriction
+            else:
+                restriction = mask
         else:
             restriction = self.restriction
         c = self.anal.comp(n1, n2, restriction=restriction, set_missing_na=self.make_na, mcnemar_test=mcnemar_test)
