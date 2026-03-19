@@ -1,12 +1,19 @@
+from __future__ import annotations
+
 import ast
 import logging
 import re
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from bccsu.bccsu.stats import freqs
 
+# Missing value codes used throughout REDCap data
+MISSING_CODES = ('R', 'N', 'D')
+MISSING_LABELS = {'R': 'Refused', 'N': 'Not Applicable', 'D': "Don't Know"}
+YESNO_TABLE = [{'value': '1', 'description': 'Yes'}, {'value': '0', 'description': 'No'}]
 
 _SAFE_AST_NODES = (
     ast.Expression, ast.BoolOp, ast.And, ast.Or,
@@ -26,13 +33,13 @@ def _validate_restriction_ast(source):
 
 
 class RedCap:
-    def __init__(self, df, meta):
-        self.meta = meta
-        self.df = df.reset_index(drop=True)
-        self.restriction = None
-        self.text_recategorization_started = False
+    def __init__(self, df: pd.DataFrame, meta: pd.DataFrame) -> None:
+        self.meta: pd.DataFrame = meta
+        self.df: pd.DataFrame = df.reset_index(drop=True)
+        self.restriction: pd.Series | None = None
+        self.text_recategorization_started: bool = False
 
-    def create_restriction_mask(self, key):
+    def create_restriction_mask(self, key: str) -> pd.Series:
         s = self.meta.loc[key]['restrictions']
 
         if pd.isna(s):
@@ -85,7 +92,7 @@ class RedCap:
         _validate_restriction_ast(s)
         return eval(compile(s, '<string>', 'eval'))
 
-    def create_missingness_mask(self, key):
+    def create_missingness_mask(self, key: str) -> pd.Series:
         question_category = self.meta.loc[key]['question_category']
         if question_category == 'checkbox':
             question_name = self.meta.loc[key]['name']
@@ -94,25 +101,24 @@ class RedCap:
             mask = ~self.df[key].str.lower().isin(['r', 'n', 'd', None])
         return mask
 
-    def get_classes(self, key):
+    def get_classes(self, key: str) -> dict[str, str]:
         classes = {}
         for row in self.meta.loc[key]['question_table']:
             classes[row['value']] = row['description']
         return classes
 
-    def _clean_categorical(self, key, mask, set_missing_na=False):
+    def _clean_categorical(self, key: str, mask: pd.Series, set_missing_na: bool = False) -> pd.Series:
         array = self.df[key].copy()
         array[mask] = np.nan
         classes = self.get_classes(key)
         if not set_missing_na:
-            classes.update({'R': 'Refused', 'N': 'Not Applicable', 'D': 'Don\'t Know'})
+            classes.update(MISSING_LABELS)
         array = pd.Series(pd.Categorical(array.map(classes),
                                          categories=list(classes.values()),
                                          ordered=True), name=key, index=array.index)
         return array
 
-    def _clean_numeric(self, key, mask):
-        # Check if numeric
+    def _clean_numeric(self, key: str, mask: pd.Series) -> pd.Series:
         array = self.df[key].copy()
         array[mask] = np.nan
         is_numeric = self.check_numeric(key)
@@ -121,7 +127,7 @@ class RedCap:
         array = pd.to_numeric(array, errors='coerce')
         return array
 
-    def check_numeric(self, key):
+    def check_numeric(self, key: str) -> bool:
         if self.meta.loc[key]['question_category'] == 'numeric':
             return True
         if self.meta.loc[key]['question_category'] != 'text':
@@ -130,7 +136,7 @@ class RedCap:
         if array.isna().all():
             return False
         array = array.str.replace(',', '').str.replace('.', '')
-        array[array.isin(['R', 'D', 'N'])] = np.nan
+        array[array.isin(MISSING_CODES)] = np.nan
         numeric = array.str.isnumeric().all()
 
         if numeric:
@@ -138,7 +144,7 @@ class RedCap:
             self.meta.loc[key, 'question_category'] = 'numeric'
         return numeric
 
-    def _clean_text(self, key, mask):
+    def _clean_text(self, key: str, mask: pd.Series) -> pd.Series:
         numeric = self.check_numeric(key)
         if numeric:
             return self._clean_numeric(key, mask)
@@ -146,14 +152,14 @@ class RedCap:
         array[mask] = np.nan
         return array
 
-    def _clean_date(self, key, mask):
+    def _clean_date(self, key: str, mask: pd.Series) -> pd.Series:
         array = self.df[key].copy()
-        array[array.isin(['R', 'D', 'N'])] = np.nan
+        array[array.isin(MISSING_CODES)] = np.nan
         array = pd.to_datetime(array)
         array[mask] = np.nan
         return array
 
-    def clean(self, keys, set_missing_na=False, force_numeric=False):
+    def clean(self, keys: str | list[str], set_missing_na: bool = False, force_numeric: bool = False) -> pd.Series | pd.DataFrame:
         """
         If we know it is numeric, we can force it to stop from guessing. Applies to all columns given so be careful.
         """
@@ -195,10 +201,10 @@ class RedCap:
 
         return df
 
-    def get_checkbox_variables(self, key):
+    def get_checkbox_variables(self, key: str) -> list[str]:
         return [q['variable_name'] for q in self.meta.loc[key]['question_table']]
 
-    def __getitem__(self, keys):
+    def __getitem__(self, keys: str | list[str]) -> pd.DataFrame:
         if isinstance(keys, str):
             keys = [keys]
         if isinstance(keys, list):
@@ -215,7 +221,7 @@ class RedCap:
             result = self.df[keys]
         return result
 
-    def _pretty_counts(self, key, numeric=False, dropna=False, restriction=None, set_missing_na=False):
+    def _pretty_counts(self, key: str, numeric: bool = False, dropna: bool = False, restriction: pd.Series | None = None, set_missing_na: bool = False) -> pd.Series:
         c = self.clean(key, set_missing_na=set_missing_na)
         if restriction is not None:
             c = c[restriction]
@@ -236,10 +242,10 @@ class RedCap:
                              f"{self.meta.loc[key].get('description')}")
         return counts_array
 
-    def get_description_text(self, key):
+    def get_description_text(self, key: str) -> str:
         return f"{self.meta.loc[key].get('question_number')} - {key}: {self.meta.loc[key].get('description')}"
 
-    def _pretty_iqr(self, key, restriction=None):
+    def _pretty_iqr(self, key: str, restriction: pd.Series | None = None) -> pd.DataFrame:
         c = self.clean(key)
         if restriction is not None:
             c = c[restriction]
@@ -255,7 +261,7 @@ class RedCap:
                                      f"{self.meta.loc[key].get('description')}"])
         return result
 
-    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None, set_missing_na=False):
+    def pretty_counts(self, keys: str | list[str], dropna: bool = False, numeric: bool = False, restriction: pd.Series | None = None, set_missing_na: bool = False) -> pd.DataFrame:
         # todo if multiple checkbox columns. Stack side-by-side.
         if isinstance(keys, str):
             keys = [keys]
@@ -280,7 +286,7 @@ class RedCap:
                 else:
                     raw_data = self.df[key]
                 if not set_missing_na:
-                    for item in ['R', 'N', 'D']:
+                    for item in MISSING_CODES:
                         count = (raw_data == item).sum()
                         if count > 0:
                             iqr_data[item] = (raw_data == item).sum()
@@ -296,14 +302,14 @@ class RedCap:
                 iqrs.append(iqr_data)
             return pd.concat(iqrs)
 
-        yesno = {'1': 'Yes', '0': 'No'}
+        _yesno = {item['value']: item['description'] for item in YESNO_TABLE}
         classes = self.get_classes(keys[0])
         if question_category == 'checkbox':
-            classes = yesno
+            classes = _yesno
         expanded_keys = []
         for i, key in enumerate(keys):
             if question_category == 'checkbox':
-                if classes != yesno:
+                if classes != _yesno:
                     raise Exception('Classes need to match.')
                 for check_var in self.get_checkbox_variables(key):
                     expanded_keys.append(check_var)
@@ -321,7 +327,7 @@ class RedCap:
         if question_category != 'text':
             order = list(classes.values())
             if not set_missing_na:
-                order += ['Refused', 'Not Applicable', 'Don\'t Know']
+                order += list(MISSING_LABELS.values())
             order += ['Total']
             if not dropna:
                 order += ['Missing']
@@ -335,14 +341,14 @@ class RedCap:
 
         # PI's only want to see these counts if they exist.
         empty = (counts[counts.index.isin(
-            ['Refused', 'Not Applicable', 'Don\'t Know', 'Missing'])] == '0 (0.00%)').all(axis=1)
+            list(MISSING_LABELS.values()) + ['Missing'])] == '0 (0.00%)').all(axis=1)
         empty = empty[empty]
         remove = empty.index.to_list()
         if len(remove) > 0:
             counts.drop(index=remove, inplace=True)
         return counts
 
-    def comp(self, strat, columns, restriction=None, set_missing_na=False, mcnemar_test=False):
+    def comp(self, strat: str, columns: str | list[str], restriction: pd.Series | None = None, set_missing_na: bool = False, mcnemar_test: bool = False) -> pd.DataFrame:
         if self.meta.loc[strat]['question_category'] != 'categorical':
             raise Exception('Stratification must be categorical.')
 
@@ -376,7 +382,7 @@ class RedCap:
         f.title = f.title.replace(strat, new_var_names.get(strat))
         return f
 
-    def collapse(self, key, new_name, collapse_dict):
+    def collapse(self, key: str, new_name: str, collapse_dict: dict[str, list[str]]) -> pd.Series | None:
         # todo allow for multiple keys if all are using the same collapse dict.
         if new_name in self.df.columns:  # todo only look at columns that are not custom.
             raise Exception('Name already exists.')
@@ -410,7 +416,7 @@ class RedCap:
 
         elif question_category == 'checkbox':
             qt = self.meta.loc[key]['question_table']
-            yesno = [{'value': '1', 'description': 'Yes'}, {'value': '0', 'description': 'No'}]
+            yesno = list(YESNO_TABLE)
 
             new_qt = []
             template_array = pd.Series([None] * self.df.shape[0], dtype="object")
@@ -456,7 +462,7 @@ class RedCap:
         else:
             raise Exception('Stratification must be categorical or checkbox.')
 
-    def create(self, array, source_variables=None, **kwargs):
+    def create(self, array: pd.Series | pd.array, source_variables: list[str] | None = None, **kwargs: Any) -> pd.Series:
         if kwargs.get('name') is None:
             kwargs['name'] = array.name
         else:
@@ -482,7 +488,7 @@ class RedCap:
         self.meta.at[array.name, 'name'] = array.name
         return self.df[array.name]
 
-    def create_classes(self, varname, classes):
+    def create_classes(self, varname: str, classes: dict[str, str]) -> None:
         meta = self.meta.loc[varname]
         qtype = meta['question_type']
         question_table = meta['question_table']
@@ -507,13 +513,13 @@ class RedCap:
         self.meta.at[varname, 'question_table'] = question_table
 
     @staticmethod
-    def clean_text(item):
+    def clean_text(item: Any) -> Any:
         if isinstance(item, str):
             return item.lower().strip().replace('"', "").replace("'", "")
         else:
             return item
 
-    def distribute_other(self, varname, text_vars, distribution=None, ignore=None, clean=True):
+    def distribute_other(self, varname: str, text_vars: str | list[str], distribution: dict[str, list[str]] | None = None, ignore: list[str] | None = None, clean: bool = True) -> None:
         """
         99.9% of the time, we will want clean=True. I can't think of why we wouldn't but I left the option just in case.
         """
@@ -598,7 +604,7 @@ class RedCap:
         else:
             raise Exception('Variable must be checkbox or categorical.')
 
-    def question_lookup(self, qn):
+    def question_lookup(self, qn: str) -> list[str]:
         if qn in self.meta.index:
             return [qn]
         else:
@@ -606,7 +612,7 @@ class RedCap:
                               ~self.meta['checkbox'].astype(bool) &
                               (self.meta['question_type'] != 'descriptive'))]['name'].index.tolist()
 
-    def search_variables(self, query, limit=20):
+    def search_variables(self, query: str, limit: int = 20) -> pd.DataFrame:
         """Search variable names and descriptions for a query string (case-insensitive)."""
         q = query.lower()
         mask = (self.meta['name'].str.lower().str.contains(q, na=False) |
@@ -614,7 +620,7 @@ class RedCap:
         result = self.meta.loc[mask, ['name', 'description', 'question_category', 'instrument']].head(limit)
         return result
 
-    def describe(self, key):
+    def describe(self, key: str) -> dict[str, Any]:
         """Return a structured dict with all metadata and basic stats for a variable."""
         row = self.meta.loc[key]
         info = {
@@ -640,7 +646,7 @@ class RedCap:
             info['sample_values'] = col.dropna().head(5).tolist()
         return info
 
-    def list_variables(self, instrument=None, category=None, event=None):
+    def list_variables(self, instrument: str | None = None, category: str | None = None, event: str | None = None) -> pd.DataFrame:
         """List available variables with optional filtering by instrument, category, or event."""
         mask = pd.Series(True, index=self.meta.index)
         if instrument:
@@ -652,7 +658,7 @@ class RedCap:
                 lambda x: event.lower() in [e.lower() for e in x] if isinstance(x, list) else False)
         return self.meta.loc[mask, ['name', 'description', 'question_category', 'instrument']]
 
-    def summary(self):
+    def summary(self) -> dict[str, Any]:
         """Return a high-level overview of the dataset."""
         cat_counts = self.meta['question_category'].value_counts().to_dict()
         instruments = self.meta['instrument'].dropna().unique().tolist()
@@ -669,7 +675,7 @@ class RedCap:
             'events': sorted(events),
         }
 
-    def to_sas_df(self, variables, id_col='participant_id', classes=None):
+    def to_sas_df(self, variables: list[str], id_col: str = 'participant_id', classes: dict[str, str] | None = None) -> dict[str, Any]:
         """Prepare a DataFrame for SAS procedures.
 
         Converts RedCap string-stored data to numeric types suitable for SAS,
@@ -705,7 +711,7 @@ class RedCap:
                 for entry in qt:
                     sub_var = entry['variable_name']
                     arr = self.df[sub_var].copy()
-                    arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                    arr[arr.isin(MISSING_CODES)] = np.nan
                     cols[sub_var] = pd.to_numeric(arr, errors='coerce')
                     out_labels[sub_var] = {'1': entry['description'], '0': f'Not {entry["description"]}'}
                     if sub_var in classes:
@@ -716,12 +722,12 @@ class RedCap:
 
             if cat == 'numeric':
                 arr = self.df[var].copy()
-                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                arr[arr.isin(MISSING_CODES)] = np.nan
                 cols[var] = pd.to_numeric(arr, errors='coerce')
 
             elif cat == 'categorical':
                 arr = self.df[var].copy()
-                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                arr[arr.isin(MISSING_CODES)] = np.nan
                 cols[var] = pd.to_numeric(arr, errors='coerce')
 
                 if qt:
@@ -737,7 +743,7 @@ class RedCap:
 
             else:
                 arr = self.df[var].copy()
-                arr[arr.isin(['R', 'N', 'D'])] = np.nan
+                arr[arr.isin(MISSING_CODES)] = np.nan
                 cols[var] = pd.to_numeric(arr, errors='coerce')
 
         df = pd.DataFrame(cols, index=self.df.index)
@@ -763,15 +769,11 @@ class RedCap:
 
 
 class R2R(RedCap):
-    def __init__(self, df_raw, meta_dict):
-        super().__init__(
-            df_raw,
-            meta_dict
-        )
-        dict_keys = list(self.meta.keys())
+    def __init__(self, df_raw: pd.DataFrame, meta_dict: pd.DataFrame) -> None:
+        super().__init__(df_raw, meta_dict)
         self.meta['question_number'] = self.meta['adjusted_question_number']
 
-    def __getitem__(self, keys):
+    def __getitem__(self, keys: str | list[str]) -> pd.DataFrame:
         if isinstance(keys, str):
             keys = [keys]
 
@@ -785,7 +787,7 @@ class R2R(RedCap):
 
         return super().__getitem__(keys)
 
-    def pretty_counts(self, keys, dropna=False, numeric=False, restriction=None, set_missing_na=False):
+    def pretty_counts(self, keys: str | list[str], dropna: bool = False, numeric: bool = False, restriction: pd.Series | None = None, set_missing_na: bool = False) -> pd.DataFrame:
         counts = []
         if isinstance(keys, str):
             keys = [keys]
@@ -810,7 +812,7 @@ class R2R(RedCap):
         else:
             final_counts = pd.concat(counts, axis=1)
             rows = final_counts.index.to_list()
-            optional_rows = ['Refused', 'Not Applicable', 'Don\'t Know', 'Missing', 'Total']
+            optional_rows = list(MISSING_LABELS.values()) + ['Missing', 'Total']
             new_order = [r for r in rows if r not in optional_rows]
             for i in optional_rows:
                 if i in rows:
