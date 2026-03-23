@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import logging
 import re
 from typing import Any
@@ -38,6 +39,15 @@ class RedCap:
         self.df: pd.DataFrame = df.reset_index(drop=True)
         self.restriction: pd.Series | None = None
         self.text_recategorization_started: bool = False
+        self._inserts_since_defrag: int = 0
+        self._defrag_every: int = 50
+
+    def _maybe_defrag(self) -> None:
+        """Defragment the DataFrame after enough column insertions."""
+        self._inserts_since_defrag += 1
+        if self._inserts_since_defrag >= self._defrag_every:
+            self.df = self.df.copy()
+            self._inserts_since_defrag = 0
 
     def create_restriction_mask(self, key: str) -> pd.Series:
         s = self.meta.loc[key]['restrictions']
@@ -412,6 +422,7 @@ class RedCap:
             self.meta.at[new_name, 'question_category'] = 'categorical'
             self.meta.at[new_name, 'question_number'] = 'Derived'
             self.meta.at[new_name, 'source_variables'] = [key]
+            self._maybe_defrag()
             return self.df[new_name]
 
         elif question_category == 'checkbox':
@@ -457,7 +468,7 @@ class RedCap:
             for value in ['n', 'd', 'r']:
                 self.df[f'{new_name}___{value}'] = self.df[f'{key}___{value}']
 
-            self.df = self.df.copy()
+            self._maybe_defrag()
 
         else:
             raise Exception('Stratification must be categorical or checkbox.')
@@ -486,6 +497,7 @@ class RedCap:
         self.df[array.name] = array
         self.meta.loc[array.name] = kwargs
         self.meta.at[array.name, 'name'] = array.name
+        self._maybe_defrag()
         return self.df[array.name]
 
     def create_classes(self, varname: str, classes: dict[str, str]) -> None:
@@ -674,6 +686,70 @@ class RedCap:
             'category_counts': cat_counts,
             'events': sorted(events),
         }
+
+    def generate_mock(self, n: int = 100, missingness: float = 0.1, seed: int | None = None) -> RedCap:
+        """Generate a mock dataset with the same structure but random synthetic values.
+
+        Each column is populated with randomly sampled valid values based on meta
+        definitions. No real data is used. Useful for sharing with LLMs or testing
+        without exposing real participant data.
+
+        Args:
+            n: Number of mock rows to generate.
+            missingness: Probability (0-1) that any given cell is set to NA.
+            seed: Random seed for reproducibility.
+
+        Returns:
+            A new instance of the same class with mock df and a copy of meta.
+        """
+        rng = np.random.default_rng(seed)
+        mock_df = pd.DataFrame(index=range(n))
+
+        for col in self.df.columns:
+            if col not in self.meta.index:
+                if col == 'participant_id':
+                    mock_df[col] = range(9000, 9000 + n)
+                else:
+                    mock_df[col] = pd.NA
+                continue
+
+            row = self.meta.loc[col]
+            cat = row.get('question_category')
+            qt = row.get('question_table')
+
+            if cat == 'categorical' and isinstance(qt, list) and len(qt) > 0:
+                values = [q['value'] for q in qt]
+                arr = rng.choice(values, n)
+            elif cat == 'numeric':
+                lo = row.get('minimum')
+                hi = row.get('maximum')
+                lo = float(lo) if lo is not None and not (isinstance(lo, float) and np.isnan(lo)) else 0
+                hi = float(hi) if hi is not None and not (isinstance(hi, float) and np.isnan(hi)) else 100
+                if lo >= hi:
+                    hi = lo + 100
+                arr = rng.uniform(lo, hi, n).round(2).astype(str)
+            elif cat == 'date':
+                start = pd.Timestamp('2020-01-01').value // 10**9
+                end = pd.Timestamp('2026-01-01').value // 10**9
+                timestamps = pd.to_datetime(rng.integers(start, end, n), unit='s')
+                arr = timestamps.strftime('%d-%m-%Y')
+            elif cat == 'text':
+                arr = np.array([f'mock_{col}_{i}' for i in range(n)])
+            elif cat == 'checkbox':
+                # Parent checkbox rows — no df column, skip
+                continue
+            else:
+                arr = np.array([pd.NA] * n)
+
+            series = pd.Series(arr, index=mock_df.index, dtype='object')
+            mask = rng.random(n) < missingness
+            series[mask] = pd.NA
+            mock_df[col] = series
+
+        mock = copy.copy(self)
+        mock.df = mock_df
+        mock.meta = self.meta.copy()
+        return mock
 
     def to_sas_df(self, variables: list[str], id_col: str = 'participant_id', classes: dict[str, str] | None = None) -> dict[str, Any]:
         """Prepare a DataFrame for SAS procedures.
