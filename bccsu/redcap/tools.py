@@ -40,7 +40,7 @@ class RedCap:
         self.restriction: pd.Series | None = None
         self.text_recategorization_started: bool = False
         self._inserts_since_defrag: int = 0
-        self._defrag_every: int = 50
+        self._defrag_every: int = 20
 
     def _maybe_defrag(self) -> None:
         """Defragment the DataFrame after enough column insertions."""
@@ -703,14 +703,15 @@ class RedCap:
             A new instance of the same class with mock df and a copy of meta.
         """
         rng = np.random.default_rng(seed)
-        mock_df = pd.DataFrame(index=range(n))
+        idx = range(n)
+        columns = {}
 
         for col in self.df.columns:
             if col not in self.meta.index:
                 if col == 'participant_id':
-                    mock_df[col] = range(9000, 9000 + n)
+                    columns[col] = pd.array(range(9000, 9000 + n))
                 else:
-                    mock_df[col] = pd.NA
+                    columns[col] = pd.array([pd.NA] * n)
                 continue
 
             row = self.meta.loc[col]
@@ -736,15 +737,16 @@ class RedCap:
             elif cat == 'text':
                 arr = np.array([f'mock_{col}_{i}' for i in range(n)])
             elif cat == 'checkbox':
-                # Parent checkbox rows — no df column, skip
                 continue
             else:
                 arr = np.array([pd.NA] * n)
 
-            series = pd.Series(arr, index=mock_df.index, dtype='object')
+            series = pd.Series(arr, dtype='object')
             mask = rng.random(n) < missingness
             series[mask] = pd.NA
-            mock_df[col] = series
+            columns[col] = series.values
+
+        mock_df = pd.DataFrame(columns, index=idx)
 
         mock = copy.copy(self)
         mock.df = mock_df
