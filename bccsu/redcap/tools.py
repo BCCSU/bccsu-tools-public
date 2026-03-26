@@ -44,6 +44,9 @@ class RedCap:
 
     def _maybe_defrag(self) -> None:
         """Defragment the DataFrame after enough column insertions."""
+        if not hasattr(self, '_inserts_since_defrag'):
+            self._inserts_since_defrag = 0
+            self._defrag_every = 20
         self._inserts_since_defrag += 1
         if self._inserts_since_defrag >= self._defrag_every:
             self.df = self.df.copy()

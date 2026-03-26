@@ -10,3 +10,5 @@ load_session.py
 *.csv
 *.sas7bdat
 logs/*
+*.xlsx
+*.meta*

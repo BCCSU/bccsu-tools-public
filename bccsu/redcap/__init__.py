@@ -3,6 +3,221 @@ import numpy as np
 import pandas as pd
 import re
 
+
+def _strip_html(text):
+    """Remove HTML tags and decode entities from a string."""
+    if not text:
+        return None
+    clean = re.sub(r'<[^>]+>', '', text)
+    clean = clean.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+    clean = clean.strip()
+    return clean if clean else None
+
+
+def _parse_choices(choices_str, field_type, field_name):
+    """Parse the pipe-delimited select_choices_or_calculations string into a question_table list."""
+    if not choices_str:
+        return []
+    entries = choices_str.split('|')
+    question_table = []
+    for entry in entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+        # Format: "value, description" — split on first comma only
+        parts = entry.split(',', 1)
+        value = parts[0].strip()
+        description = parts[1].strip() if len(parts) > 1 else None
+        if field_type == 'checkbox':
+            variable_name = f'{field_name}___{value}'
+            question_table.append({'value': value, 'variable_name': variable_name, 'description': description})
+        else:
+            question_table.append({'value': value, 'description': description})
+    return question_table
+
+
+def _build_meta(data_dictionary, instruments_dict):
+    """Shared logic to convert a raw data_dictionary DataFrame into the final meta DataFrame.
+
+    Both parse_redcap_data_dict (HTML) and parse_redcap_data_dict_api (API) call this
+    after building their initial data_dictionary with the same column schema.
+    """
+    assert not data_dictionary['name'].duplicated().any()
+    meta_dict = {}
+    for _, row in data_dictionary.iterrows():
+        row = row.dropna().to_dict()
+        meta_dict[row['name']] = row
+        if row['question_type'] == 'checkbox':
+            for level in row['question_table']:
+                subrow = row.copy()
+                subrow.pop('question_table')
+                subrow['question_type'] = 'yesno'
+                subrow['description'] = level['description']
+                subrow['question_table'] = [{'value': '1', 'description': 'Yes'},
+                                            {'value': '0', 'description': 'No'}]
+                subrow['checkbox'] = True
+                meta_dict[level['variable_name']] = subrow
+
+    meta = pd.DataFrame(meta_dict).T
+    meta.loc[meta['checkbox'].isna(), 'checkbox'] = False
+    meta['description'] = meta['description'].fillna('No Description')
+
+    meta.loc[(meta['question_sub_type'] == ''), 'question_sub_type'] = np.nan
+
+    checkbox = ['checkbox']
+    categorical = ['dropdown', 'radio', 'yesno']
+    continuous = ['slider', 'calc']
+    text = ['descriptive', 'text', 'notes']
+    skipped = ['file']
+
+    numeric_subtypes = ['number', 'integer']
+    skip_subtypes = ['autocomplete', 'signature', 'email', 'phone']
+    date_subtypes = ['date_dmy']
+
+    meta['question_type'] = meta['question_type'].str.replace(', Required', '')
+
+    meta.loc[meta['question_type'].isin(checkbox), 'question_category'] = 'checkbox'
+    meta.loc[meta['question_type'].isin(text), 'question_category'] = 'text'
+    meta.loc[meta['question_type'].isin(categorical), 'question_category'] = 'categorical'
+    meta.loc[(meta['question_type'].isin(continuous) |
+              meta['question_sub_type'].isin(numeric_subtypes)), 'question_category'] = 'numeric'
+    meta.loc[meta['question_sub_type'].isin(date_subtypes), 'question_category'] = 'date'
+
+    unhandled_mask = meta['question_category'].isna()
+    meta_uh = meta.loc[unhandled_mask]
+    question_types = set(meta_uh['question_type'].dropna().unique())
+    handled_question_types = set(checkbox + categorical + continuous + text + skipped)
+    unhandled_questions = question_types.difference(set(handled_question_types))
+    if len(unhandled_questions) > 0:
+        raise Exception(f'Unhandled question types: {unhandled_questions}')
+
+    sub_question_types = set(meta_uh['question_sub_type'].dropna().unique())
+    sub_handled_question_types = set(numeric_subtypes + date_subtypes + skip_subtypes)
+    unhandled_sub_questions = set(sub_question_types).difference(sub_handled_question_types)
+    if len(unhandled_sub_questions) > 0:
+        raise Exception(f'Unhandled question subtypes: {set(sub_question_types).difference(sub_handled_question_types)}')
+    meta['notes'] = pd.NA
+    meta['source_variables'] = None
+    return meta
+
+
+def parse_redcap_data_dict_api(metadata_json, event_mapping_json=None):
+    """Parse the REDCap metadata API response (JSON) into a meta DataFrame.
+
+    Args:
+        metadata_json: list of dicts from the REDCap metadata API
+            (content='metadata', format='json').
+        event_mapping_json: optional list of dicts from the REDCap form-event mapping API
+            (content='formEventMapping', format='json'). If None, the 'event' column
+            will be empty lists.
+
+    Returns:
+        pd.DataFrame: meta DataFrame with the same schema as parse_redcap_data_dict.
+    """
+    # Build instrument -> events mapping
+    instruments_dict = {}
+    if event_mapping_json:
+        for entry in event_mapping_json:
+            form = entry['form']
+            event = entry['unique_event_name']
+            if form not in instruments_dict:
+                instruments_dict[form] = []
+            if event not in instruments_dict[form]:
+                instruments_dict[form].append(event)
+
+    results = []
+    for i, field in enumerate(metadata_json):
+        name = field['field_name']
+        instrument = field['form_name']
+        field_type = field['field_type']
+
+        # Required fields come through as the type itself in HTML (e.g. "radio, Required")
+        # The API has a separate 'required_field' key, but we normalise to match HTML output
+        question_type = field_type
+        if field.get('required_field') == 'y':
+            question_type = f'{field_type}, Required'
+
+        # Parse question_sub_type from validation
+        validation = field.get('text_validation_type_or_show_slider_number', '')
+        question_sub_type = validation if validation else None
+
+        # Parse min/max
+        minimum = None
+        maximum = None
+        val_min = field.get('text_validation_min', '')
+        val_max = field.get('text_validation_max', '')
+        if val_min:
+            try:
+                minimum = float(val_min)
+            except ValueError:
+                pass
+        if val_max:
+            try:
+                maximum = float(val_max)
+            except ValueError:
+                pass
+
+        # Parse choices
+        question_table = _parse_choices(
+            field.get('select_choices_or_calculations', ''),
+            field_type,
+            name
+        )
+        # calc/slider fields use select_choices_or_calculations for formulas/labels, not choices
+        if field_type in ('calc', 'slider'):
+            question_table = []
+        # yesno fields don't have select_choices in the API but need a standard table
+        if field_type == 'yesno' and not question_table:
+            question_table = [{'value': '1', 'description': 'Yes'},
+                              {'value': '0', 'description': 'No'}]
+        # Filter out accidental 'Parent' checkbox category
+        if field_type == 'checkbox':
+            question_table = [q for q in question_table if q['value'] != 'Parent']
+
+        # Description from field_label (strip HTML)
+        description = _strip_html(field.get('field_label', ''))
+
+        # Section header
+        section = field.get('section_header', '')
+        section = _strip_html(section) if section else None
+
+        # Branching logic -> restrictions
+        restrictions = field.get('branching_logic', '') or None
+
+        # Field annotation
+        field_annotation = field.get('field_annotation', '') or None
+
+        # Custom alignment
+        custom_alignment = field.get('custom_alignment', '') or None
+
+        # Question number (adjusted) from API
+        adjusted_question_number = field.get('question_number', '') or None
+
+        # Events for this instrument
+        events = instruments_dict.get(instrument, [])
+
+        results.append({
+            'instrument': instrument,
+            'event': events,
+            'section': section,
+            'question_number': i + 1,
+            'name': name,
+            'restrictions': restrictions,
+            'description': description,
+            'question_type': question_type,
+            'question_sub_type': question_sub_type,
+            'question_table': question_table,
+            'field_annotation': field_annotation,
+            'custom_alignment': custom_alignment,
+            'minimum': minimum,
+            'maximum': maximum,
+            'adjusted_question_number': adjusted_question_number,
+        })
+
+    data_dictionary = pd.DataFrame(results)
+    return _build_meta(data_dictionary, instruments_dict)
+
+
 def parse_redcap_data_dict(path):
     """
     Get the redcap data dictionary from the redcap site and copy the html of the table into a file.
@@ -141,61 +356,4 @@ def parse_redcap_data_dict(path):
                         'adjusted_question_number': adjusted_question_number})
 
     data_dictionary = pd.DataFrame(results)
-
-    assert not data_dictionary['name'].duplicated().any()
-    meta_dict = {}
-    for _, row in data_dictionary.iterrows():
-        row = row.dropna().to_dict()
-        meta_dict[row['name']] = row
-        if row['question_type'] == 'checkbox':
-            for level in row['question_table']:
-                subrow = row.copy()
-                subrow.pop('question_table')
-                subrow['question_type'] = 'yesno'
-                subrow['description'] = level['description']
-                subrow['question_table'] = [{'value': '1', 'description': 'Yes'},
-                                            {'value': '0', 'description': 'No'}]
-                subrow['checkbox'] = True
-                meta_dict[level['variable_name']] = subrow
-
-    meta = pd.DataFrame(meta_dict).T
-    meta.loc[meta['checkbox'].isna(), 'checkbox'] = False
-    meta['description'] = meta['description'].fillna('No Description')
-
-    meta.loc[(meta['question_sub_type'] == ''), 'question_sub_type'] = np.nan
-
-    checkbox = ['checkbox']
-    categorical = ['dropdown', 'radio', 'yesno']
-    continuous = ['slider', 'calc']
-    text = ['descriptive', 'text', 'notes']
-    skipped = ['file']
-
-    numeric_subtypes = ['number', 'integer']
-    skip_subtypes = ['autocomplete', 'signature', 'email', 'phone']
-    date_subtypes = ['date_dmy']
-
-    meta['question_type'] = meta['question_type'].str.replace(', Required', '')
-
-    meta.loc[meta['question_type'].isin(checkbox), 'question_category'] = 'checkbox'
-    meta.loc[meta['question_type'].isin(text), 'question_category'] = 'text'
-    meta.loc[meta['question_type'].isin(categorical), 'question_category'] = 'categorical'
-    meta.loc[(meta['question_type'].isin(continuous) |
-              meta['question_sub_type'].isin(numeric_subtypes)), 'question_category'] = 'numeric'
-    meta.loc[meta['question_sub_type'].isin(date_subtypes), 'question_category'] = 'date'
-
-    unhandled_mask = meta['question_category'].isna()
-    meta_uh = meta.loc[unhandled_mask]
-    question_types = set(meta_uh['question_type'].dropna().unique())
-    handled_question_types = set(checkbox + categorical + continuous + text + skipped)
-    unhandled_questions = question_types.difference(set(handled_question_types))
-    if len(unhandled_questions) > 0:
-        raise Exception(f'Unhandled question types: {unhandled_questions}')
-
-    sub_question_types = set(meta_uh['question_sub_type'].dropna().unique())
-    sub_handled_question_types = set(numeric_subtypes + date_subtypes + skip_subtypes)
-    unhandled_sub_questions = set(sub_question_types).difference(sub_handled_question_types)
-    if len(unhandled_sub_questions) > 0:
-        raise Exception(f'Unhandled question subtypes: {set(sub_question_types).difference(sub_handled_question_types)}')
-    meta['notes'] = pd.NA
-    meta['source_variables'] = None
-    return meta
+    return _build_meta(data_dictionary, instruments_dict)
