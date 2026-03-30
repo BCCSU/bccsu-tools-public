@@ -2,6 +2,7 @@ from bccsu.sas.commands import *
 from bccsu.sas.table_parse import *
 from bccsu.sas.tools.parse_tools import prettify, clean_model_wrapper
 from bccsu.sas.stat_wrappers import *
+from bccsu.sas.python_stats import proc_logistic_python, bivar_logistic_python
 
 
 def freqs(*args, **kwargs):
@@ -26,10 +27,15 @@ def convert_cox_parse(*args, **kwargs):
     return convert_cox(*args, **kwargs, outputs=['OUTPUT_COX'])['OUTPUT_COX']
 
 
-@clean_model_wrapper
-def proc_logistic(*args, **kwargs):
-    df, nobs, _, classes = proc_logistic_parse(*args, **kwargs)
-    return df, nobs, classes
+def proc_logistic(*args, use_sas=False, **kwargs):
+    if not use_sas:
+        return proc_logistic_python(*args, **kwargs)
+
+    @clean_model_wrapper
+    def _sas(*a, **kw):
+        df, nobs, _, classes = proc_logistic_parse(*a, **kw)
+        return df, nobs, classes
+    return _sas(*args, **kwargs)
 
 
 @clean_model_wrapper
@@ -67,9 +73,14 @@ def bivar_reg(*args, **kwargs):
     return proc_reg_parse(*args, **kwargs)
 
 
-@bivar
-def bivar_logistic(*args, **kwargs):
-    return proc_logistic_parse(*args, **kwargs)
+def bivar_logistic(*args, use_sas=False, **kwargs):
+    if not use_sas:
+        return bivar_logistic_python(*args, **kwargs)
+
+    @bivar
+    def _sas(*a, **kw):
+        return proc_logistic_parse(*a, **kw)
+    return _sas(*args, **kwargs)
 
 
 @bivar
