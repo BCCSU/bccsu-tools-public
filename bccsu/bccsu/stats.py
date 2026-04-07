@@ -190,8 +190,9 @@ def get_iqr(df, col=None):
     if col is None and isinstance(df, pd.core.series.Series):
         col = df.name
         df = pd.DataFrame(df)
+    n = df[col].notna().sum()
     iqr = pd.DataFrame(df[col].quantile([.25, .5, .75]))[col]
-    return f'{iqr[.5]:0.1f} ({iqr[.25]:0.1f} - {iqr[.75]:0.1f})'
+    return f'N={n}; {iqr[.5]:0.1f} ({iqr[.25]:0.1f} - {iqr[.75]:0.1f})'
 
 
 def counts(df, cols=None):
@@ -415,6 +416,26 @@ def freqs(df, cols, strat=None, labels=None, mcnemar_test=False):
         cont_vars = [col for col in cols if col not in cat_vars]
         if cat_vars:
             cat_strat = strat_table(df, strat, cat_vars).reset_index()
+            # Ensure all label categories appear as rows, even with zero counts
+            data_cols = [c for c in cat_strat.columns if c not in ['level_0', 'level_1']]
+            for col in cat_vars:
+                if labels.get(col):
+                    existing_vals = set(cat_strat.loc[
+                        (cat_strat['level_0'] == col) & (cat_strat['level_1'] != 'Total'), 'level_1'
+                    ].values)
+                    new_rows = []
+                    for cat_key in labels[col]:
+                        try:
+                            cat_num = int(cat_key)
+                        except (ValueError, TypeError):
+                            cat_num = cat_key
+                        if cat_num not in existing_vals:
+                            row = {'level_0': col, 'level_1': cat_num}
+                            for dc in data_cols:
+                                row[dc] = '0 (0.00%)'
+                            new_rows.append(row)
+                    if new_rows:
+                        cat_strat = pd.concat([cat_strat, pd.DataFrame(new_rows)], ignore_index=True)
             strat_tables.append(cat_strat)
 
         for c in cat_vars:
@@ -439,25 +460,31 @@ def freqs(df, cols, strat=None, labels=None, mcnemar_test=False):
     strat_tables.append(cont_strat)
 
     table = pd.concat(strat_tables)
-    table['group'] = 1
-    table['group'] = table.groupby('level_0')['group'].cumsum()
-
-    table = pd.merge(table, tests, how='left', on=['level_0', 'group'])
 
     table['level_0'] = pd.Categorical(table['level_0'], categories=cols, ordered=True)
     table = table.sort_values(['level_0', 'level_1'])
+
+    table['group'] = 1
+    table['group'] = table.groupby('level_0')['group'].cumsum()
+    table = pd.merge(table, tests, how='left', on=['level_0', 'group'])
     table.drop(columns=['group'], inplace=True)
 
     if labels is not None:
         for key, variable in table.groupby('level_0', observed=False):
             if labels.get(key):
-                table.loc[(table['level_0'] == key) & (table['level_1'] != 'Total'), 'level_1'] = variable['level_1'].map(labels.get(key)).fillna('')
+                mask = (table['level_0'] == key) & (table['level_1'] != 'Total')
+                # level_1 is numeric (float) after to_numeric conversion, but label keys are strings
+                str_level = variable['level_1'].apply(lambda x: str(int(x)) if pd.notna(x) and x != 'Total' else x)
+                label_str = {str(k): v for k, v in labels.get(key).items()}
+                table.loc[mask, 'level_1'] = str_level.map(label_str).fillna('')
 
     out = table.set_index(['level_0', 'level_1'])
 
     if labels:
         if labels.get(strat):
-            out = out.rename(columns=labels.get(strat))
+            strat_labels = {str(k): v for k, v in labels.get(strat).items()}
+            col_map = {col: strat_labels.get(str(int(col)), col) if isinstance(col, (int, float)) else strat_labels.get(col, col) for col in out.columns}
+            out = out.rename(columns=col_map)
 
     out.index.names = [None, None]
 

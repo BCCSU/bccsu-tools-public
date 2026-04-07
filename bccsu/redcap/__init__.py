@@ -242,7 +242,10 @@ def parse_redcap_data_dict(path):
             form_name = cols[1].xpath('text()')
             if len(form_name) > 1:
                 raise Exception('Multiple forms found in instruments table.')
-            instruments_dict[cols[1].xpath('text()')[0].strip()] = [i.strip() for i in cols[2].xpath('text()')]
+            if len(cols) > 2:
+                instruments_dict[cols[1].xpath('text()')[0].strip()] = [i.strip() for i in cols[2].xpath('text()')]
+            else:
+                instruments_dict[cols[1].xpath('text()')[0].strip()] = []
 
     main_table = html_tree.xpath('//table[@id="codebook-table"]')[0]
 
